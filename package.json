@@ -1,0 +1,20 @@
+{
+  "name": "tula-closeline-infra",
+  "version": "0.0.0",
+  "description": "Closeline infrastructure: AWS, one full deployment per Region",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "prepare": "husky || true",
+    "check": "biome check --no-errors-on-unmatched .",
+    "typecheck": "echo 'nothing to typecheck yet'",
+    "shared:check": "bash .claude/hooks/shared-check.sh",
+    "verify": "bun run check && bun run shared:check",
+    "verify:changed": "bun run verify"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "husky": "^9.1.7"
+  }
+}
