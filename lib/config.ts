@@ -3,6 +3,9 @@ import { z } from 'zod'
 /** The deployment environments; the `ENVIRONMENT` variable every service reads (never NODE_ENV). */
 export const environmentSchema = z.enum(['dev', 'staging', 'prod'])
 
+/** An environment variable name: upper snake case. */
+const envNameSchema = z.string().regex(/^[A-Z][A-Z0-9_]*$/)
+
 const queueSpecSchema = z.object({
   name: z.string().regex(/^[a-z][a-z0-9-]{1,40}$/),
   visibilityTimeoutSeconds: z.number().int().min(0).max(43200).default(30),
@@ -10,33 +13,83 @@ const queueSpecSchema = z.object({
 
 const queueAccessSchema = z.object({
   queue: z.string(),
-  envName: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  envName: envNameSchema,
   access: z.enum(['send', 'consume', 'both']),
 })
 
-const secretRefSchema = z.object({
-  envName: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
-  secretName: z.string().min(1),
-  field: z.string().optional(),
-})
+/** Variables the construct sets itself, so a spec may not set them. */
+const RESERVED_ENV_NAMES = ['ENVIRONMENT']
+
+/**
+ * The Secrets Manager name of one of a service's secrets: `closeline/<environment>/<service>/<NAME>`,
+ * where NAME is the environment variable the container reads. An owner creates each secret by this
+ * name (its value is the plain string the variable holds); the stacks only reference it and never
+ * create or read a value.
+ */
+export function secretName(environment: string, service: string, name: string): string {
+  return `closeline/${environment}/${service}/${name}`
+}
 
 /** One Closeline service to run: where its image lives, how it is routed and what it may use. */
-export const serviceSpecSchema = z.object({
-  name: z.string().regex(/^[a-z][a-z0-9-]{1,30}$/),
-  /** ECR repository name, referenced not created. The image is pushed by the service's own CI. */
-  repositoryName: z.string().min(1),
-  imageTag: z.string().min(1),
-  port: z.number().int().min(1).max(65535).default(3000),
-  cpu: z.number().int().default(256),
-  memoryMiB: z.number().int().default(512),
-  desiredCount: z.number().int().min(0).default(1),
-  pathPatterns: z.array(z.string().startsWith('/')).min(1),
-  healthCheckPath: z.string().startsWith('/').default('/health'),
-  /** ALB listener rule priority, unique per listener. */
-  priority: z.number().int().min(1).max(50000),
-  queues: z.array(queueAccessSchema).default([]),
-  secrets: z.array(secretRefSchema).default([]),
-})
+export const serviceSpecSchema = z
+  .object({
+    name: z.string().regex(/^[a-z][a-z0-9-]{1,30}$/),
+    /** ECR repository name, referenced not created. The image is pushed by the service's own CI. */
+    repositoryName: z.string().min(1),
+    imageTag: z.string().min(1),
+    port: z.number().int().min(1).max(65535).default(3000),
+    cpu: z.number().int().default(256),
+    memoryMiB: z.number().int().default(512),
+    desiredCount: z.number().int().min(0).default(1),
+    /**
+     * ALB path patterns. The listener holds one rule per service, so a pattern must not be claimed
+     * by two services: give each service its own `/v1/<prefix>/*` patterns, or, where one prefix is
+     * shared, an explicit priority order (the lower number wins, the more specific pattern first).
+     * Core's `/v1/*` is the catch-all today; narrow it, or give it the highest number, before the
+     * auth or playbook service joins the stage.
+     */
+    pathPatterns: z.array(z.string().startsWith('/')).min(1),
+    healthCheckPath: z.string().startsWith('/').default('/health'),
+    /** ALB listener rule priority, unique per listener. */
+    priority: z.number().int().min(1).max(50000),
+    queues: z.array(queueAccessSchema).default([]),
+    /** Environment variable that carries the data stack's bucket name; grants object access to it. */
+    storage: z.object({ envName: envNameSchema }).optional(),
+    /**
+     * Secret environment variable names only. Each is read from the Secrets Manager secret named
+     * by `secretName(environment, service, NAME)`; the value is created by an owner, never here.
+     */
+    secrets: z.array(envNameSchema).default([]),
+    /** Non-secret settings, passed as plain container environment values. */
+    environment: z.record(envNameSchema, z.string().min(1)).default({}),
+  })
+  .superRefine((spec, context) => {
+    // Every variable name the container receives must come from exactly one source.
+    const owners = new Map<string, string>(RESERVED_ENV_NAMES.map((name) => [name, 'reserved']))
+    const claim = (name: string, source: string, path: (string | number)[]) => {
+      const taken = owners.get(name)
+      if (taken !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          path,
+          message: `${name} is already used (${taken}); a variable has one source`,
+        })
+      }
+      owners.set(name, source)
+    }
+    for (const [index, name] of spec.secrets.entries()) {
+      claim(name, 'secret', ['secrets', index])
+    }
+    for (const [index, q] of spec.queues.entries()) {
+      claim(q.envName, 'queue', ['queues', index, 'envName'])
+    }
+    if (spec.storage) {
+      claim(spec.storage.envName, 'storage', ['storage', 'envName'])
+    }
+    for (const name of Object.keys(spec.environment)) {
+      claim(name, 'environment', ['environment', name])
+    }
+  })
 
 /** The typed Region config: everything that differs between deployments. */
 export const regionConfigSchema = z.object({

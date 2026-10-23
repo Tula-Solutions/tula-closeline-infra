@@ -37,7 +37,30 @@ Each stage (`lib/region-stage.ts`) has these stacks:
 
 To add a queue or service, add an entry to the stage in `config/stages.ts`. The image is a
 reference to an existing ECR repository (`repositoryName`, `imageTag`) pushed by the service's own
-CI. Secrets are Secrets Manager names looked up at deploy time and passed to tasks as ECS secrets.
+CI.
+
+A service spec carries four kinds of configuration, each with one source per variable name (Zod
+rejects a collision, and `ENVIRONMENT` is reserved):
+
+- `environment`: non-secret settings, passed as plain container values.
+- `secrets`: secret variable names only. Each is read from the existing Secrets Manager secret
+  `closeline/<environment>/<service>/<NAME>` (`secretName` in `lib/config.ts`) and passed as an
+  ECS secret. The stacks never create or read a value; the owner creates it as a plain string.
+- `queues`: a queue from the stage, its URL variable and its grant (`send`, `consume`, `both`).
+- `storage`: the data stack's bucket name under the given variable; the task role gets
+  `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on the bucket's objects, no listing.
+
+The bucket and the Postgres endpoint reach the service stack as typed props. Core reads only
+`DATABASE_URL`, a full `postgres://` URL with credentials, so it is an owner-created secret and the
+host and port are published as the service stack's `DatabaseHost` and `DatabasePort` outputs.
+
+### Routing rule for `/v1/*`
+
+The ALB has one listener and a path belongs to one service. Each service claims its own
+`/v1/<prefix>/*` patterns, or, where a prefix is shared, a priority order: the lower number is
+tried first, so specific patterns get the lower numbers and a catch-all such as core's `/v1/*` the
+highest. Settle this before auth or the playbook join a stage; `/healthz`, `/readyz` and
+`/internal` are never routed.
 
 `bun run synth` synthesises every stage with a dummy account (no AWS credentials needed) and is
 part of `bun run verify`.
@@ -59,7 +82,9 @@ Nobody deploys from a laptop. Until these exist the deploy workflow cannot run.
    deploy from). Give it permission to assume the CDK bootstrap roles (`cdk-*` in the account).
 3. **Set repository variables** (Settings, Secrets and variables, Actions, Variables):
    `AWS_DEPLOY_ROLE_ARN` (the role above), `AWS_REGION` (the stage's Region) and `AWS_ACCOUNT_ID`.
-4. **Create the secrets** each service names in `config/stages.ts` in Secrets Manager. Values
-   never go in this repo.
+4. **Create the secrets** each service lists in `config/stages.ts` in Secrets Manager, named
+   `closeline/<environment>/<service>/<NAME>` (for dev core: `DATABASE_URL`,
+   `INTERNAL_API_TOKENS`, `DEMO_RATE_KEY`, `CONSENT_HASH_KEY`). Values never go in this repo.
+   Also replace the placeholder auth, portal and notice hosts in the stage's `environment`.
 5. Run the **Deploy** workflow (Actions, Deploy, Run workflow) and pick the stage. It runs
    `cdk diff`, then `cdk deploy`.

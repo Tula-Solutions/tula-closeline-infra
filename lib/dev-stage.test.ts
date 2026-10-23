@@ -25,7 +25,7 @@ describe('the dev stage: core-jobs queue', () => {
       throw new Error('the dev stage has no messaging stack')
     }
     const template = Template.fromStack(dev.messaging)
-    template.resourceCountIs('AWS::SQS::Queue', 2)
+    template.resourceCountIs('AWS::SQS::Queue', 4)
     template.hasResourceProperties('AWS::SQS::Queue', {
       QueueName: 'core-jobs',
       VisibilityTimeout: 180,
@@ -52,7 +52,7 @@ describe('the dev stage: core-jobs queue', () => {
     })
   })
 
-  test('core is granted SQS actions on the jobs queue only', () => {
+  test('core is granted SQS actions on its two queues only, never a DLQ', () => {
     const sqsStatements: { Action: string[]; Resource: unknown }[] = []
     for (const policy of Object.values(core().findResources('AWS::IAM::Policy'))) {
       for (const s of policy.Properties.PolicyDocument.Statement) {
@@ -71,9 +71,9 @@ describe('the dev stage: core-jobs queue', () => {
     for (const s of sqsStatements) {
       const resource = JSON.stringify(s.Resource)
       expect(resource).not.toContain('"*"')
-      // Exactly one reference, to the jobs queue's ARN export (never its DLQ).
+      // Exactly one reference, to the ARN export of the jobs or events queue (never a DLQ).
       expect(resource).toMatch(
-        /^\{"Fn::ImportValue":"dev-messaging:[^"]*QueuecorejobsQueue[^"]*Arn[^"]*"\}$/
+        /^\{"Fn::ImportValue":"dev-messaging:[^"]*Queuecore(jobs|events)Queue[^"]*Arn[^"]*"\}$/
       )
     }
   })
@@ -85,5 +85,111 @@ describe('the dev stage: core-jobs queue', () => {
     core().hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
       HealthCheckPath: '/healthz',
     })
+  })
+})
+
+/** The environment and secrets of the core container in the dev stage. */
+function coreContainer(): {
+  Environment: { Name: string; Value?: unknown }[]
+  Secrets: { Name: string; ValueFrom: unknown }[]
+} {
+  const task = Object.values(core().findResources('AWS::ECS::TaskDefinition'))[0]
+  return task?.Properties.ContainerDefinitions[0]
+}
+
+const SECRETS = ['DATABASE_URL', 'INTERNAL_API_TOKENS', 'DEMO_RATE_KEY', 'CONSENT_HASH_KEY']
+
+describe('the dev stage: core boot configuration', () => {
+  test.each([
+    ['ENVIRONMENT', 'dev'],
+    ['REGION', 'us'],
+    ['AWS_REGION', 'us-east-1'],
+    ['AUTH_AUDIENCE', 'closeline'],
+    ['TRUSTED_PROXY_HOPS', '1'],
+  ])('core gets %s as a plain value', (name, value) => {
+    expect(coreContainer().Environment).toContainEqual({ Name: name, Value: value })
+  })
+
+  test.each(['AUTH_JWKS_URL', 'AUTH_ISSUER', 'PORTAL_BASE_URL', 'DEMO_NOTICE_TO'])(
+    'core gets %s as a non-empty plain value',
+    (name) => {
+      const found = coreContainer().Environment.find((e) => e.Name === name)
+      expect(typeof found?.Value).toBe('string')
+      expect(found?.Value).not.toBe('')
+    }
+  )
+
+  test('core gets the bucket name and both queue URLs from the stack, not from a literal', () => {
+    for (const name of ['STORAGE_BUCKET', 'QUEUE_URL', 'JOBS_QUEUE_URL']) {
+      const found = coreContainer().Environment.find((e) => e.Name === name)
+      expect(typeof found?.Value).toBe('object')
+    }
+  })
+
+  test.each(SECRETS)('%s is an ECS secret that names closeline/dev/core/%s', (name) => {
+    const found = coreContainer().Secrets.find((s) => s.Name === name)
+    expect(JSON.stringify(found?.ValueFrom)).toContain(`closeline/dev/core/${name}`)
+  })
+
+  test('no secret appears as a plain environment value, by name or by secret name', () => {
+    const environment = JSON.stringify(coreContainer().Environment)
+    for (const name of SECRETS) {
+      expect(coreContainer().Environment.map((e) => e.Name)).not.toContain(name)
+      expect(environment).not.toContain(`closeline/dev/core/${name}`)
+    }
+    expect(
+      coreContainer()
+        .Secrets.map((s) => s.Name)
+        .sort()
+    ).toEqual([...SECRETS].sort())
+  })
+
+  test('the database endpoint is passed as a typed prop and published as a stack output', () => {
+    const outputs = core().toJSON().Outputs
+    expect(JSON.stringify(outputs.DatabaseHost.Value)).toMatch(
+      /dev-data:.*Postgres.*EndpointAddress/
+    )
+  })
+
+  test('core has an event queue with a DLQ, and is granted send and consume on it', () => {
+    if (!dev.messaging) {
+      throw new Error('the dev stage has no messaging stack')
+    }
+    Template.fromStack(dev.messaging).hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'core-events',
+      RedrivePolicy: { maxReceiveCount: 5, deadLetterTargetArn: Match.anyValue() },
+    })
+    const resources: string[] = []
+    for (const policy of Object.values(core().findResources('AWS::IAM::Policy'))) {
+      for (const s of policy.Properties.PolicyDocument.Statement) {
+        if ([s.Action].flat().includes('sqs:SendMessage')) {
+          resources.push(JSON.stringify(s.Resource))
+        }
+      }
+    }
+    expect(resources.some((r) => r.includes('QueuecoreeventsQueue'))).toBe(true)
+    expect(resources.some((r) => r.includes('QueuecorejobsQueue'))).toBe(true)
+  })
+
+  test('core may get, put and delete objects in the bucket, and cannot list or administer it', () => {
+    const statements: { Action: string[]; Resource: unknown }[] = []
+    for (const policy of Object.values(core().findResources('AWS::IAM::Policy'))) {
+      for (const s of policy.Properties.PolicyDocument.Statement) {
+        const actions = [s.Action].flat() as string[]
+        if (actions.some((a) => a.startsWith('s3:'))) {
+          statements.push({ Action: actions, Resource: s.Resource })
+        }
+      }
+    }
+    expect(statements.flatMap((s) => s.Action).sort()).toEqual([
+      's3:DeleteObject',
+      's3:GetObject',
+      's3:PutObject',
+    ])
+    for (const s of statements) {
+      const resource = JSON.stringify(s.Resource)
+      expect(resource).toContain('data:')
+      expect(resource.endsWith('/*"}') || resource.includes('/*')).toBe(true)
+    }
   })
 })

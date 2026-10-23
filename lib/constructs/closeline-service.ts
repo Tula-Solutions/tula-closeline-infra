@@ -4,6 +4,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs'
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import * as logs from 'aws-cdk-lib/aws-logs'
+import type * as s3 from 'aws-cdk-lib/aws-s3'
 import type * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import type * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
@@ -27,6 +28,13 @@ export interface ServiceSecret {
   field?: string
 }
 
+/** An object bucket a service reads and writes, and the variable that carries its name. */
+export interface ServiceStorage {
+  bucket: s3.IBucket
+  /** Environment variable holding the bucket name. */
+  envName: string
+}
+
 /** Where the ALB sends traffic for a service. */
 export interface ServiceRoute {
   listener: elbv2.IApplicationListener
@@ -40,7 +48,8 @@ export interface ServiceRoute {
 export interface CloselineServiceProps {
   /** Service name, e.g. `core`. */
   serviceName: string
-  environment: (typeof environmentSchema)['_output']
+  /** The deployment environment, passed as `ENVIRONMENT`. */
+  stage: (typeof environmentSchema)['_output']
   vpc: ec2.IVpc
   cluster: ecs.ICluster
   image: ecs.ContainerImage
@@ -50,6 +59,9 @@ export interface CloselineServiceProps {
   desiredCount: number
   queues: ServiceQueue[]
   secrets: ServiceSecret[]
+  /** Non-secret settings, passed as plain environment values. */
+  environment: Record<string, string>
+  storage?: ServiceStorage
   route?: ServiceRoute
 }
 
@@ -61,7 +73,12 @@ export class CloselineService extends Construct {
   constructor(scope: Construct, id: string, props: CloselineServiceProps) {
     super(scope, id)
 
-    const envNames = [...props.queues.map((q) => q.envName), ...props.secrets.map((s) => s.envName)]
+    const envNames = [
+      ...props.queues.map((q) => q.envName),
+      ...props.secrets.map((s) => s.envName),
+      ...Object.keys(props.environment),
+      ...(props.storage ? [props.storage.envName] : []),
+    ]
     if (new Set(envNames).size !== envNames.length || envNames.includes('ENVIRONMENT')) {
       throw new Error(`service ${props.serviceName}: environment variable names must be unique`)
     }
@@ -79,6 +96,16 @@ export class CloselineService extends Construct {
       }
     }
 
+    if (props.storage) {
+      // Object-level only, on the bucket's objects: no listing, no bucket or ACL administration.
+      this.taskRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+          resources: [props.storage.bucket.arnForObjects('*')],
+        })
+      )
+    }
+
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'Task', {
       cpu: props.cpu,
       memoryLimitMiB: props.memoryMiB,
@@ -89,7 +116,13 @@ export class CloselineService extends Construct {
       },
     })
 
-    const environment: Record<string, string> = { ENVIRONMENT: props.environment }
+    const environment: Record<string, string> = {
+      ...props.environment,
+      ENVIRONMENT: props.stage,
+    }
+    if (props.storage) {
+      environment[props.storage.envName] = props.storage.bucket.bucketName
+    }
     for (const { queue, envName } of props.queues) {
       environment[envName] = queue.queueUrl
     }

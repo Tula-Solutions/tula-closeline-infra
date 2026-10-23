@@ -2,10 +2,11 @@ import * as cdk from 'aws-cdk-lib'
 import * as ecr from 'aws-cdk-lib/aws-ecr'
 import * as ecs from 'aws-cdk-lib/aws-ecs'
 import type * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2'
+import type * as s3 from 'aws-cdk-lib/aws-s3'
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import type * as sqs from 'aws-cdk-lib/aws-sqs'
 import type { Construct } from 'constructs'
-import type { RegionConfig, ServiceSpec } from '../config'
+import { type RegionConfig, type ServiceSpec, secretName } from '../config'
 import { CloselineService } from '../constructs/closeline-service'
 import type { NetworkStack } from './network-stack'
 
@@ -17,11 +18,17 @@ export interface ServiceStackProps extends cdk.StackProps {
   listener: elbv2.IApplicationListener
   /** Queues by name, from the messaging stack. */
   queues: Record<string, { queue: sqs.IQueue }>
+  /** The data stack's bucket, for a service that declares `storage`. */
+  bucket: s3.IBucket
+  /** The data stack's Postgres endpoint, published as an output for the owner's DATABASE_URL. */
+  database: { address: string; port: string }
 }
 
 /**
  * One service: its ECS service, task role, queue grants, secrets and route. The image is a
- * reference to an existing ECR repository; secrets are looked up by name, never created here.
+ * reference to an existing ECR repository; secrets are referenced by the
+ * `closeline/<environment>/<service>/<NAME>` convention, never created here. The bucket and
+ * database endpoint arrive as typed props, not by name lookup.
  */
 export class ServiceStack extends cdk.Stack {
   readonly service: CloselineService
@@ -32,7 +39,7 @@ export class ServiceStack extends cdk.Stack {
     const repository = ecr.Repository.fromRepositoryName(this, 'Repo', spec.repositoryName)
     this.service = new CloselineService(this, 'Service', {
       serviceName: spec.name,
-      environment: props.environment,
+      stage: props.environment,
       vpc: props.network.vpc,
       cluster: props.network.cluster,
       image: ecs.ContainerImage.fromEcrRepository(repository, spec.imageTag),
@@ -47,11 +54,16 @@ export class ServiceStack extends cdk.Stack {
         }
         return { queue: found.queue, envName: q.envName, access: q.access }
       }),
-      secrets: spec.secrets.map((s) => ({
-        envName: s.envName,
-        field: s.field,
-        secret: secretsmanager.Secret.fromSecretNameV2(this, `Secret-${s.envName}`, s.secretName),
+      secrets: spec.secrets.map((envName) => ({
+        envName,
+        secret: secretsmanager.Secret.fromSecretNameV2(
+          this,
+          `Secret-${envName}`,
+          secretName(props.environment, spec.name, envName)
+        ),
       })),
+      environment: spec.environment,
+      ...(spec.storage ? { storage: { bucket: props.bucket, envName: spec.storage.envName } } : {}),
       route: {
         listener: props.listener,
         pathPatterns: spec.pathPatterns,
@@ -59,5 +71,10 @@ export class ServiceStack extends cdk.Stack {
         priority: spec.priority,
       },
     })
+
+    // Core reads DATABASE_URL only, a secret an owner creates with credentials. The host and port
+    // are here so the owner can write it.
+    new cdk.CfnOutput(this, 'DatabaseHost', { value: props.database.address })
+    new cdk.CfnOutput(this, 'DatabasePort', { value: props.database.port })
   }
 }

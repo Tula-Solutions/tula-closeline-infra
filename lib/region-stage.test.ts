@@ -22,7 +22,7 @@ function withServices(): RegionStage {
         pathPatterns: ['/core/*'],
         priority: 10,
         queues: [{ queue: 'core-jobs', envName: 'JOBS_QUEUE_URL', access: 'both' }],
-        secrets: [{ envName: 'DATABASE_URL', secretName: 'closeline/dev/core/database-url' }],
+        secrets: ['DATABASE_URL'],
       },
     ],
   })
