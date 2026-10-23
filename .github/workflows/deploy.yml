@@ -1,0 +1,47 @@
+name: Deploy
+
+# Manual only until the OIDC role and `cdk bootstrap` exist in the target account (ADR 0025,
+# README "One-time owner steps"). Only this workflow deploys; nobody deploys from a laptop.
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Stage to deploy (a key of config/stages.ts)
+        type: choice
+        options: [dev]
+        default: dev
+
+concurrency:
+  group: deploy-${{ inputs.stage }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      STAGE: ${{ inputs.stage }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/Tula-Solutions/".insteadOf "ssh://git@github.com/Tula-Solutions/"
+      - run: bun install --frozen-lockfile
+      - run: bun run verify
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: closeline-infra-deploy
+      - name: cdk diff
+        run: bunx cdk diff "$STAGE/*" -c "account=$AWS_ACCOUNT_ID" 2>&1 | tee cdk-diff.txt
+      - name: cdk deploy
+        run: bunx cdk deploy "$STAGE/*" -c "account=$AWS_ACCOUNT_ID" --require-approval never --concurrency 1

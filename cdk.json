@@ -1,0 +1,9 @@
+{
+  "app": "bun bin/app.ts",
+  "watch": { "include": ["**"], "exclude": ["node_modules", "cdk.out", "**/*.test.ts"] },
+  "context": {
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/aws-ecs:enableImdsBlockingDeprecatedFeature": true
+  }
+}

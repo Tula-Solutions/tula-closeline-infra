@@ -7,14 +7,25 @@
   "packageManager": "bun@1.4.2",
   "scripts": {
     "prepare": "husky || true",
-    "check": "biome check --no-errors-on-unmatched .",
-    "typecheck": "echo 'nothing to typecheck yet'",
+    "check": "biome check --no-errors-on-unmatched bin lib config scripts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "synth": "bun scripts/synth-check.ts",
+    "cdk": "cdk",
     "shared:check": "bash .claude/hooks/shared-check.sh",
-    "verify": "bun run check && bun run shared:check",
+    "verify": "bun run check && bun run typecheck && bun test && bun run synth && bun run shared:check",
     "verify:changed": "bun run verify"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
-    "husky": "^9.1.7"
+    "@types/bun": "^1.4.3",
+    "aws-cdk": "^2.1146.0",
+    "husky": "^9.1.7",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.273.0",
+    "constructs": "^10.8.1",
+    "zod": "^4.6.7"
   }
 }

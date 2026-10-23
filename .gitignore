@@ -18,3 +18,4 @@ coverage/
 .claude/.state/
 .claude/worktrees/
 .claude/launch.json
+cdk.out/
