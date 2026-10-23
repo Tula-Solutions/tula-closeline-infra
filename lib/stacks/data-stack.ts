@@ -13,8 +13,9 @@ export interface DataStackProps extends cdk.StackProps {
 }
 
 /**
- * The Region's Postgres (ADR 0007), object storage and the key that seals core's CRM tokens. All are retained when the
- * stack is deleted or the resource is replaced, so a stack change never destroys data.
+ * The Region's Postgres (ADR 0007), object storage and the key that seals core's CRM tokens. All
+ * are retained when the stack is deleted or the resource is replaced, so a stack change never
+ * destroys data.
  */
 export class DataStack extends cdk.Stack {
   readonly database: rds.DatabaseInstance
