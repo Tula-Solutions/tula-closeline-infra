@@ -16,6 +16,8 @@ export const stages: Record<string, StageDefinition> = {
       // Core's bulk jobs. A job may run up to a few minutes, so the visibility timeout must
       // outlast it (3 minutes) or a second consumer would take the message mid-run.
       { name: 'core-jobs', visibilityTimeoutSeconds: 180 },
+      // Core's domain events (`QUEUE_URL`). Default visibility timeout: a handler is short.
+      { name: 'core-events' },
     ],
     services: [
       {
@@ -25,12 +27,37 @@ export const stages: Record<string, StageDefinition> = {
         imageTag: 'placeholder',
         // Only /v1/* is routed. The listener's default action is a 404, which keeps /healthz,
         // /readyz and /internal (service to service) unreachable through the load balancer.
-        // /v1/* will overlap auth's and the playbook's /v1 prefixes: settle their patterns and
-        // priorities when those services are added.
+        // Rule for /v1 overlaps: a path belongs to one service. When auth or the playbook join,
+        // each gets its own /v1/<prefix>/* patterns and a priority below core's, and core's
+        // catch-all /v1/* keeps the highest number so the specific rules are tried first.
         pathPatterns: ['/v1/*'],
         healthCheckPath: '/healthz',
         priority: 100,
-        queues: [{ queue: 'core-jobs', envName: 'JOBS_QUEUE_URL', access: 'both' }],
+        queues: [
+          { queue: 'core-events', envName: 'QUEUE_URL', access: 'both' },
+          { queue: 'core-jobs', envName: 'JOBS_QUEUE_URL', access: 'both' },
+        ],
+        // Core's import files; the bucket name arrives as STORAGE_BUCKET. keyPrefix mirrors the
+        // kit's S3_KEY_PREFIX: its S3 adapter stores every key under `orgs/`.
+        storage: { envName: 'STORAGE_BUCKET', keyPrefix: 'orgs/' },
+        // Secret names are closeline/dev/core/<NAME> (see `secretName` in lib/config.ts). An owner
+        // creates each in Secrets Manager as a plain string; no value is in this repo.
+        // DATABASE_URL is a full postgres:// URL with the closeline_core login; core reads no
+        // separate host or port, so the endpoint is only published as a stack output.
+        secrets: ['DATABASE_URL', 'INTERNAL_API_TOKENS', 'DEMO_RATE_KEY', 'CONSENT_HASH_KEY'],
+        // Non-secret settings. PLACEHOLDER: the auth, portal and notice values below name hosts
+        // that do not exist yet; set the real ones before the first deploy.
+        environment: {
+          REGION: 'us',
+          AWS_REGION: 'us-east-1',
+          AUTH_JWKS_URL: 'https://auth.dev.closeline.example/.well-known/jwks.json',
+          AUTH_ISSUER: 'https://auth.dev.closeline.example',
+          AUTH_AUDIENCE: 'closeline',
+          PORTAL_BASE_URL: 'https://portal.dev.closeline.example',
+          // One proxy (the ALB) appends to X-Forwarded-For.
+          TRUSTED_PROXY_HOPS: '1',
+          DEMO_NOTICE_TO: 'demo-requests@closeline.example',
+        },
       },
     ],
   },

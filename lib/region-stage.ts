@@ -39,6 +39,11 @@ export class RegionStage extends cdk.Stage {
         network: this.network,
         listener: this.edge.listener,
         queues: this.messaging?.queues ?? {},
+        bucket: this.data.bucket,
+        database: {
+          address: this.data.database.dbInstanceEndpointAddress,
+          port: this.data.database.dbInstanceEndpointPort,
+        },
       })
     }
   }

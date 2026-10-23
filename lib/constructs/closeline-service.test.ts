@@ -3,6 +3,7 @@ import { App, Stack } from 'aws-cdk-lib'
 import { Match, Template } from 'aws-cdk-lib/assertions'
 import * as ec2 from 'aws-cdk-lib/aws-ec2'
 import * as ecs from 'aws-cdk-lib/aws-ecs'
+import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import {
@@ -15,6 +16,8 @@ import {
 interface Options {
   queues?: (queue: sqs.IQueue) => ServiceQueue[]
   secrets?: (secret: secretsmanager.ISecret) => ServiceSecret[]
+  environment?: Record<string, string>
+  storage?: boolean
 }
 
 function synth(options: Options = {}): Template {
@@ -28,7 +31,7 @@ function synth(options: Options = {}): Template {
   const secret = new secretsmanager.Secret(stack, 'Secret')
   const props: CloselineServiceProps = {
     serviceName: 'core',
-    environment: 'dev',
+    stage: 'dev',
     vpc,
     cluster,
     image: ecs.ContainerImage.fromRegistry('placeholder/core:latest'),
@@ -38,6 +41,16 @@ function synth(options: Options = {}): Template {
     desiredCount: 1,
     queues: options.queues?.(jobs) ?? [],
     secrets: options.secrets?.(secret) ?? [],
+    environment: options.environment ?? {},
+    ...(options.storage
+      ? {
+          storage: {
+            bucket: new s3.Bucket(stack, 'Objects'),
+            envName: 'STORAGE_BUCKET',
+            keyPrefix: 'orgs/',
+          },
+        }
+      : {}),
   }
   expect(other).toBeDefined()
   new CloselineService(stack, 'Core', props)
@@ -160,6 +173,59 @@ describe('CloselineService', () => {
         { Environment: Match.arrayWith([Match.objectLike({ Name: 'JOBS_QUEUE_URL' })]) },
       ],
     })
+  })
+
+  test('plain settings reach the container as environment values', () => {
+    synth({ environment: { REGION: 'us', TRUSTED_PROXY_HOPS: '1' } }).hasResourceProperties(
+      'AWS::ECS::TaskDefinition',
+      {
+        ContainerDefinitions: [
+          {
+            Environment: Match.arrayWith([
+              { Name: 'REGION', Value: 'us' },
+              { Name: 'TRUSTED_PROXY_HOPS', Value: '1' },
+            ]),
+          },
+        ],
+      }
+    )
+  })
+
+  test('a plain setting that collides with a secret, queue or ENVIRONMENT is refused', () => {
+    expect(() =>
+      synth({
+        environment: { DB: 'x' },
+        secrets: (s) => [{ envName: 'DB', secret: s }],
+      })
+    ).toThrow('unique')
+    expect(() => synth({ environment: { ENVIRONMENT: 'prod' } })).toThrow('unique')
+  })
+
+  test('storage grants object get, put and delete on the key prefix only, plus an unconditional list', () => {
+    const template = synth({ storage: true })
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: [
+        { Environment: Match.arrayWith([Match.objectLike({ Name: 'STORAGE_BUCKET' })]) },
+      ],
+    })
+    const statements = taskRolePolicyStatements(template)
+    const objects = statements.find((s) => s.Action.includes('s3:GetObject'))
+    expect(objects?.Action.sort()).toEqual(['s3:DeleteObject', 's3:GetObject', 's3:PutObject'])
+    expect(JSON.stringify(objects?.Resource)).toContain('/orgs/*')
+    expect(JSON.stringify(objects?.Resource)).not.toContain('"/*"')
+    const list = statements.find((s) => s.Action.includes('s3:ListBucket')) as
+      | { Action: string[]; Resource: unknown; Condition?: unknown }
+      | undefined
+    expect(list?.Action).toEqual(['s3:ListBucket'])
+    // No s3:prefix condition: S3 sends none for a head of a missing key, so it would not match.
+    expect(list?.Condition).toBeUndefined()
+    expect(JSON.stringify(list?.Resource)).not.toContain('/*')
+    expect(statements.flatMap((s) => s.Action).sort()).toEqual([
+      's3:DeleteObject',
+      's3:GetObject',
+      's3:ListBucket',
+      's3:PutObject',
+    ])
   })
 
   test('a duplicate or reserved environment variable name is refused', () => {
