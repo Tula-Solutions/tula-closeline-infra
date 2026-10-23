@@ -34,11 +34,15 @@ describe('every stage in config/stages.ts', () => {
     test(`${name} synthesises without AWS credentials`, () => {
       const assembly = buildApp('000000000000').synth()
       const stage = assembly.getNestedAssembly(`assembly-${name}`)
-      expect(stage.stacks.map((s) => s.stackName).sort()).toEqual([
-        `${name}-data`,
-        `${name}-edge`,
-        `${name}-network`,
-      ])
+      const definition = stages[name]
+      const expected = [`${name}-data`, `${name}-edge`, `${name}-network`]
+      if (definition?.queues?.length) {
+        expected.push(`${name}-messaging`)
+      }
+      for (const service of definition?.services ?? []) {
+        expected.push(`${name}-service-${service.name}`)
+      }
+      expect(stage.stacks.map((s) => s.stackName).sort()).toEqual(expected.sort())
     })
   }
 

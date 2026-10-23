@@ -12,7 +12,26 @@ export const stages: Record<string, StageDefinition> = {
     region: 'us-east-1',
     environment: 'dev',
     natGateways: 1,
-    queues: [],
-    services: [],
+    queues: [
+      // Core's bulk jobs. A job may run up to a few minutes, so the visibility timeout must
+      // outlast it (3 minutes) or a second consumer would take the message mid-run.
+      { name: 'core-jobs', visibilityTimeoutSeconds: 180 },
+    ],
+    services: [
+      {
+        name: 'core',
+        // Placeholders until core's CI pushes an image; deploying needs the real repository and tag.
+        repositoryName: 'closeline/core',
+        imageTag: 'placeholder',
+        // Only /v1/* is routed. The listener's default action is a 404, which keeps /healthz,
+        // /readyz and /internal (service to service) unreachable through the load balancer.
+        // /v1/* will overlap auth's and the playbook's /v1 prefixes: settle their patterns and
+        // priorities when those services are added.
+        pathPatterns: ['/v1/*'],
+        healthCheckPath: '/healthz',
+        priority: 100,
+        queues: [{ queue: 'core-jobs', envName: 'JOBS_QUEUE_URL', access: 'both' }],
+      },
+    ],
   },
 }
