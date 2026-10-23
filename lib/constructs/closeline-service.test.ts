@@ -3,6 +3,7 @@ import { App, Stack } from 'aws-cdk-lib'
 import { Match, Template } from 'aws-cdk-lib/assertions'
 import * as ec2 from 'aws-cdk-lib/aws-ec2'
 import * as ecs from 'aws-cdk-lib/aws-ecs'
+import * as kms from 'aws-cdk-lib/aws-kms'
 import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
@@ -18,6 +19,7 @@ interface Options {
   secrets?: (secret: secretsmanager.ISecret) => ServiceSecret[]
   environment?: Record<string, string>
   storage?: boolean
+  kmsKey?: boolean
 }
 
 function synth(options: Options = {}): Template {
@@ -51,6 +53,12 @@ function synth(options: Options = {}): Template {
           },
         }
       : {}),
+  }
+  if (options.kmsKey) {
+    props.kmsKey = {
+      key: new kms.Key(stack, 'Seal'),
+      envName: 'CRM_TOKEN_KMS_KEY_ARN',
+    }
   }
   expect(other).toBeDefined()
   new CloselineService(stack, 'Core', props)
@@ -243,5 +251,38 @@ describe('CloselineService', () => {
       }),
       NetworkConfiguration: { AwsvpcConfiguration: { AssignPublicIp: 'DISABLED' } },
     })
+  })
+
+  test('a KMS key grants exactly Encrypt, Decrypt and GenerateDataKey on that key, bound to the service context', () => {
+    const template = synth({ kmsKey: true })
+    const statements = taskRolePolicyStatements(template)
+    expect(statements).toHaveLength(1)
+    const [statement] = statements as { Action: string[]; Resource: unknown; Condition?: unknown }[]
+    expect(statement?.Action.sort()).toEqual(['kms:Decrypt', 'kms:Encrypt', 'kms:GenerateDataKey'])
+    expect(JSON.stringify(statement?.Resource)).toContain('Seal')
+    expect(JSON.stringify(statement?.Resource)).not.toContain('"*"')
+    expect(statement?.Condition).toEqual({
+      StringEquals: { 'kms:EncryptionContext:closeline:service': 'core' },
+    })
+  })
+
+  test('the key ARN reaches the container as a plain environment value', () => {
+    const template = synth({ kmsKey: true })
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: [
+        {
+          Environment: Match.arrayWith([
+            Match.objectLike({
+              Name: 'CRM_TOKEN_KMS_KEY_ARN',
+              Value: { 'Fn::GetAtt': [Match.stringLikeRegexp('Seal'), 'Arn'] },
+            }),
+          ]),
+        },
+      ],
+    })
+  })
+
+  test('a KMS variable that collides with another source is rejected', () => {
+    expect(() => synth({ kmsKey: true, environment: { CRM_TOKEN_KMS_KEY_ARN: 'x' } })).toThrow()
   })
 })

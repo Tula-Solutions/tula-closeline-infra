@@ -30,7 +30,7 @@ Each stage (`lib/region-stage.ts`) has these stacks:
 | Stack | Holds |
 | --- | --- |
 | `network` | VPC (public, private and isolated subnets) and the ECS cluster |
-| `data` | Postgres (RDS) and the object bucket, both retained, encrypted, never public |
+| `data` | Postgres (RDS), the object bucket and the CRM token KMS key, all retained, encrypted, never public |
 | `messaging` | one `QueueWithDlq` per entry of `queues` (only when there is one) |
 | `edge` | the internet-facing ALB; unmatched paths get a 404 |
 | `service-<name>` | one `CloselineService` per entry of `services`: Fargate service, task role, queue grants, secrets, path rule |
@@ -39,7 +39,7 @@ To add a queue or service, add an entry to the stage in `config/stages.ts`. The 
 reference to an existing ECR repository (`repositoryName`, `imageTag`) pushed by the service's own
 CI.
 
-A service spec carries four kinds of configuration, each with one source per variable name (Zod
+A service spec carries five kinds of configuration, each with one source per variable name (Zod
 rejects a collision, and `ENVIRONMENT` is reserved):
 
 - `environment`: non-secret settings, passed as plain container values.
@@ -53,7 +53,14 @@ rejects a collision, and `ENVIRONMENT` is reserved):
   condition would not apply to a head request). Key names, never contents, are then visible across
   prefixes to any service with `storage`.
 
-The bucket and the Postgres endpoint reach the service stack as typed props. Core reads only
+- `kmsKey`: the stage's customer-managed CRM token key (symmetric, rotated, retained, alias
+  `alias/closeline/<environment>/core/crm-tokens`, created in the data stack). Its ARN is passed
+  under the given variable (core: `CRM_TOKEN_KMS_KEY_ARN`; not a secret). The task role gets
+  `kms:Encrypt`, `kms:Decrypt` and `kms:GenerateDataKey` on that key only, and only when the call
+  carries the encryption context `closeline:service` = the service name (`core`); core's adapter
+  must pass it on every call.
+
+The bucket, the key and the Postgres endpoint reach the service stack as typed props. Core reads only
 `DATABASE_URL`, a full `postgres://` URL with credentials, so it is an owner-created secret and the
 host and port are published as the service stack's `DatabaseHost` and `DatabasePort` outputs.
 

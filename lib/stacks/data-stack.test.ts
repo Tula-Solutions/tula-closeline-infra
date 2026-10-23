@@ -8,7 +8,7 @@ function synth(): Template {
   const app = new App()
   const env = { account: '123456789012', region: 'us-east-1' }
   const { vpc } = new NetworkStack(app, 'net', { env, natGateways: 1 })
-  return Template.fromStack(new DataStack(app, 'data', { env, vpc }))
+  return Template.fromStack(new DataStack(app, 'data', { env, vpc, environment: 'dev' }))
 }
 
 describe('DataStack', () => {
@@ -66,5 +66,33 @@ describe('DataStack', () => {
     template.hasResourceProperties('AWS::EC2::SecurityGroup', {
       SecurityGroupIngress: [Match.objectLike({ FromPort: 5432, ToPort: 5432, IpProtocol: 'tcp' })],
     })
+  })
+
+  test('the CRM token key is symmetric, rotates and is retained', () => {
+    template.resourceCountIs('AWS::KMS::Key', 1)
+    template.hasResource('AWS::KMS::Key', {
+      DeletionPolicy: 'Retain',
+      UpdateReplacePolicy: 'Retain',
+      Properties: {
+        EnableKeyRotation: true,
+        KeySpec: 'SYMMETRIC_DEFAULT',
+        KeyUsage: 'ENCRYPT_DECRYPT',
+      },
+    })
+  })
+
+  test('the CRM token key has the per-stage alias', () => {
+    template.hasResourceProperties('AWS::KMS::Alias', {
+      AliasName: 'alias/closeline/dev/core/crm-tokens',
+    })
+  })
+
+  test('the key policy names only the account root: no other principal can decrypt', () => {
+    const keys = Object.values(template.findResources('AWS::KMS::Key'))
+    const statements: { Principal: unknown; Effect: string }[] =
+      keys[0]?.Properties.KeyPolicy.Statement ?? []
+    expect(statements).toHaveLength(1)
+    expect(statements[0]?.Effect).toBe('Allow')
+    expect(JSON.stringify(statements[0]?.Principal)).toContain(':root')
   })
 })

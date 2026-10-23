@@ -120,7 +120,7 @@ describe('the dev stage: core boot configuration', () => {
   )
 
   test('core gets the bucket name and both queue URLs from the stack, not from a literal', () => {
-    for (const name of ['STORAGE_BUCKET', 'QUEUE_URL', 'JOBS_QUEUE_URL']) {
+    for (const name of ['STORAGE_BUCKET', 'QUEUE_URL', 'JOBS_QUEUE_URL', 'CRM_TOKEN_KMS_KEY_ARN']) {
       const found = coreContainer().Environment.find((e) => e.Name === name)
       expect(typeof found?.Value).toBe('object')
     }
@@ -189,5 +189,46 @@ describe('the dev stage: core boot configuration', () => {
     // No s3:prefix condition: S3 sends none for a head of a missing key, so it would not match.
     expect(list?.Condition).toBeUndefined()
     expect(statements).toHaveLength(2)
+  })
+
+  test('core gets the CRM token key ARN, and only core may use that key', () => {
+    const arn = coreContainer().Environment.find((e) => e.Name === 'CRM_TOKEN_KMS_KEY_ARN')
+    expect(JSON.stringify(arn?.Value)).toContain('Arn')
+    const statements: { Action: string[]; Resource: unknown; Condition?: unknown }[] = []
+    for (const policy of Object.values(core().findResources('AWS::IAM::Policy'))) {
+      for (const s of policy.Properties.PolicyDocument.Statement) {
+        const actions = [s.Action].flat() as string[]
+        if (actions.some((a) => a.startsWith('kms:'))) {
+          statements.push({ Action: actions, Resource: s.Resource, Condition: s.Condition })
+        }
+      }
+    }
+    expect(statements).toHaveLength(1)
+    expect(statements[0]?.Action.sort()).toEqual([
+      'kms:Decrypt',
+      'kms:Encrypt',
+      'kms:GenerateDataKey',
+    ])
+    expect(statements[0]?.Condition).toEqual({
+      StringEquals: { 'kms:EncryptionContext:closeline:service': 'core' },
+    })
+    expect(JSON.stringify(statements[0]?.Resource)).toContain('Arn')
+  })
+
+  test('no other stack in the stage grants kms actions to a role', () => {
+    for (const stack of [
+      dev.network,
+      dev.data,
+      dev.edge,
+      ...(dev.messaging ? [dev.messaging] : []),
+    ]) {
+      for (const policy of Object.values(
+        Template.fromStack(stack).findResources('AWS::IAM::Policy')
+      )) {
+        for (const s of policy.Properties.PolicyDocument.Statement) {
+          expect([s.Action].flat().some((a: string) => a.startsWith('kms:'))).toBe(false)
+        }
+      }
+    }
   })
 })

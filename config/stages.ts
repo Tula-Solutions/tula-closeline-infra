@@ -40,6 +40,10 @@ export const stages: Record<string, StageDefinition> = {
         // Core's import files; the bucket name arrives as STORAGE_BUCKET. keyPrefix mirrors the
         // kit's S3_KEY_PREFIX: its S3 adapter stores every key under `orgs/`.
         storage: { envName: 'STORAGE_BUCKET', keyPrefix: 'orgs/' },
+        // The stage's CRM token key (alias/closeline/dev/core/crm-tokens); its ARN arrives as
+        // CRM_TOKEN_KMS_KEY_ARN. Core's adapter must pass the encryption context
+        // {"closeline:service": "core"} on every call (the grant is conditional on it).
+        kmsKey: { envName: 'CRM_TOKEN_KMS_KEY_ARN' },
         // Secret names are closeline/dev/core/<NAME> (see `secretName` in lib/config.ts). An owner
         // creates each in Secrets Manager as a plain string; no value is in this repo.
         // DATABASE_URL is a full postgres:// URL with the closeline_core login; core reads no

@@ -62,6 +62,10 @@ describe('parseRegionConfig', () => {
       'the storage variable',
       { storage: { envName: 'STORAGE_BUCKET' }, environment: { STORAGE_BUCKET: 'x' } },
     ],
+    [
+      'the KMS key variable',
+      { kmsKey: { envName: 'CRM_TOKEN_KMS_KEY_ARN' }, environment: { CRM_TOKEN_KMS_KEY_ARN: 'x' } },
+    ],
     ['ENVIRONMENT', { environment: { ENVIRONMENT: 'prod' } }],
     ['a lower-case name', { environment: { region: 'us' } }],
   ])('rejects a plain environment key that collides with %s', (_name, extra) => {

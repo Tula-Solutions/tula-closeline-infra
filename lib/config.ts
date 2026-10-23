@@ -65,6 +65,12 @@ export const serviceSpecSchema = z
       })
       .optional(),
     /**
+     * The stage's CRM token KMS key (customer-managed, per stage). Its ARN, not a secret, is passed
+     * under `envName`; the task role may only Encrypt, Decrypt and GenerateDataKey with it, and
+     * only with the encryption context `closeline:service` equal to the service name.
+     */
+    kmsKey: z.object({ envName: envNameSchema }).optional(),
+    /**
      * Secret environment variable names only. Each is read from the Secrets Manager secret named
      * by `secretName(environment, service, NAME)`; the value is created by an owner, never here.
      */
@@ -94,6 +100,9 @@ export const serviceSpecSchema = z
     }
     if (spec.storage) {
       claim(spec.storage.envName, 'storage', ['storage', 'envName'])
+    }
+    if (spec.kmsKey) {
+      claim(spec.kmsKey.envName, 'kmsKey', ['kmsKey', 'envName'])
     }
     for (const name of Object.keys(spec.environment)) {
       claim(name, 'environment', ['environment', name])
