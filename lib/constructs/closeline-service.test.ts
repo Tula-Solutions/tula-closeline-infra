@@ -43,7 +43,13 @@ function synth(options: Options = {}): Template {
     secrets: options.secrets?.(secret) ?? [],
     environment: options.environment ?? {},
     ...(options.storage
-      ? { storage: { bucket: new s3.Bucket(stack, 'Objects'), envName: 'STORAGE_BUCKET' } }
+      ? {
+          storage: {
+            bucket: new s3.Bucket(stack, 'Objects'),
+            envName: 'STORAGE_BUCKET',
+            keyPrefix: 'orgs/',
+          },
+        }
       : {}),
   }
   expect(other).toBeDefined()
@@ -195,7 +201,7 @@ describe('CloselineService', () => {
     expect(() => synth({ environment: { ENVIRONMENT: 'prod' } })).toThrow('unique')
   })
 
-  test('storage grants object get, put and delete on the bucket objects and nothing else', () => {
+  test('storage grants object get, put and delete on the key prefix only, plus a prefixed list', () => {
     const template = synth({ storage: true })
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       ContainerDefinitions: [
@@ -203,16 +209,22 @@ describe('CloselineService', () => {
       ],
     })
     const statements = taskRolePolicyStatements(template)
+    const objects = statements.find((s) => s.Action.includes('s3:GetObject'))
+    expect(objects?.Action.sort()).toEqual(['s3:DeleteObject', 's3:GetObject', 's3:PutObject'])
+    expect(JSON.stringify(objects?.Resource)).toContain('/orgs/*')
+    expect(JSON.stringify(objects?.Resource)).not.toContain('"/*"')
+    const list = statements.find((s) => s.Action.includes('s3:ListBucket')) as
+      | { Action: string[]; Resource: unknown; Condition?: unknown }
+      | undefined
+    expect(list?.Action).toEqual(['s3:ListBucket'])
+    expect(list?.Condition).toEqual({ StringLike: { 's3:prefix': ['orgs/*'] } })
+    expect(JSON.stringify(list?.Resource)).not.toContain('/*')
     expect(statements.flatMap((s) => s.Action).sort()).toEqual([
       's3:DeleteObject',
       's3:GetObject',
+      's3:ListBucket',
       's3:PutObject',
     ])
-    for (const s of statements) {
-      const resource = JSON.stringify(s.Resource)
-      expect(resource).not.toBe('"*"')
-      expect(resource).toContain('/*')
-    }
   })
 
   test('a duplicate or reserved environment variable name is refused', () => {

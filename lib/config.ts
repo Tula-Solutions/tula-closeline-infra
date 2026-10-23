@@ -54,7 +54,16 @@ export const serviceSpecSchema = z
     priority: z.number().int().min(1).max(50000),
     queues: z.array(queueAccessSchema).default([]),
     /** Environment variable that carries the data stack's bucket name; grants object access to it. */
-    storage: z.object({ envName: envNameSchema }).optional(),
+    storage: z
+      .object({
+        envName: envNameSchema,
+        /** Key prefix the grants are limited to, ending in `/`. Default: the whole bucket. */
+        keyPrefix: z
+          .string()
+          .regex(/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*\/$/)
+          .optional(),
+      })
+      .optional(),
     /**
      * Secret environment variable names only. Each is read from the Secrets Manager secret named
      * by `secretName(environment, service, NAME)`; the value is created by an owner, never here.

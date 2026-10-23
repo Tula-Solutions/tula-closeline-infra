@@ -33,6 +33,8 @@ export interface ServiceStorage {
   bucket: s3.IBucket
   /** Environment variable holding the bucket name. */
   envName: string
+  /** Key prefix (ending in `/`) the grants are limited to; the whole bucket when omitted. */
+  keyPrefix?: string
 }
 
 /** Where the ALB sends traffic for a service. */
@@ -97,11 +99,23 @@ export class CloselineService extends Construct {
     }
 
     if (props.storage) {
-      // Object-level only, on the bucket's objects: no listing, no bucket or ACL administration.
+      const { bucket, keyPrefix = '' } = props.storage
+      // Object-level only, under the key prefix: no bucket or ACL administration.
       this.taskRole.addToPolicy(
         new iam.PolicyStatement({
           actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
-          resources: [props.storage.bucket.arnForObjects('*')],
+          resources: [bucket.arnForObjects(`${keyPrefix}*`)],
+        })
+      )
+      // Without ListBucket, S3 answers 403 instead of 404 for a missing key, so a head of an
+      // absent object would throw. Listing is limited to the same prefix.
+      this.taskRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['s3:ListBucket'],
+          resources: [bucket.bucketArn],
+          ...(keyPrefix === ''
+            ? {}
+            : { conditions: { StringLike: { 's3:prefix': [`${keyPrefix}*`] } } }),
         })
       )
     }

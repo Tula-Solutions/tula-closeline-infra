@@ -63,7 +63,17 @@ export class ServiceStack extends cdk.Stack {
         ),
       })),
       environment: spec.environment,
-      ...(spec.storage ? { storage: { bucket: props.bucket, envName: spec.storage.envName } } : {}),
+      ...(spec.storage
+        ? {
+            storage: {
+              bucket: props.bucket,
+              envName: spec.storage.envName,
+              ...(spec.storage.keyPrefix === undefined
+                ? {}
+                : { keyPrefix: spec.storage.keyPrefix }),
+            },
+          }
+        : {}),
       route: {
         listener: props.listener,
         pathPatterns: spec.pathPatterns,

@@ -37,8 +37,9 @@ export const stages: Record<string, StageDefinition> = {
           { queue: 'core-events', envName: 'QUEUE_URL', access: 'both' },
           { queue: 'core-jobs', envName: 'JOBS_QUEUE_URL', access: 'both' },
         ],
-        // Core's import files; the bucket name arrives as STORAGE_BUCKET.
-        storage: { envName: 'STORAGE_BUCKET' },
+        // Core's import files; the bucket name arrives as STORAGE_BUCKET. keyPrefix mirrors the
+        // kit's S3_KEY_PREFIX: its S3 adapter stores every key under `orgs/`.
+        storage: { envName: 'STORAGE_BUCKET', keyPrefix: 'orgs/' },
         // Secret names are closeline/dev/core/<NAME> (see `secretName` in lib/config.ts). An owner
         // creates each in Secrets Manager as a plain string; no value is in this repo.
         // DATABASE_URL is a full postgres:// URL with the closeline_core login; core reads no

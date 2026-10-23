@@ -171,25 +171,22 @@ describe('the dev stage: core boot configuration', () => {
     expect(resources.some((r) => r.includes('QueuecorejobsQueue'))).toBe(true)
   })
 
-  test('core may get, put and delete objects in the bucket, and cannot list or administer it', () => {
-    const statements: { Action: string[]; Resource: unknown }[] = []
+  test('core may get, put and delete under orgs/ and list only with the orgs/ prefix', () => {
+    const statements: { Action: string[]; Resource: unknown; Condition?: unknown }[] = []
     for (const policy of Object.values(core().findResources('AWS::IAM::Policy'))) {
       for (const s of policy.Properties.PolicyDocument.Statement) {
         const actions = [s.Action].flat() as string[]
         if (actions.some((a) => a.startsWith('s3:'))) {
-          statements.push({ Action: actions, Resource: s.Resource })
+          statements.push({ Action: actions, Resource: s.Resource, Condition: s.Condition })
         }
       }
     }
-    expect(statements.flatMap((s) => s.Action).sort()).toEqual([
-      's3:DeleteObject',
-      's3:GetObject',
-      's3:PutObject',
-    ])
-    for (const s of statements) {
-      const resource = JSON.stringify(s.Resource)
-      expect(resource).toContain('data:')
-      expect(resource.endsWith('/*"}') || resource.includes('/*')).toBe(true)
-    }
+    const objects = statements.find((s) => s.Action.includes('s3:GetObject'))
+    expect(objects?.Action.sort()).toEqual(['s3:DeleteObject', 's3:GetObject', 's3:PutObject'])
+    expect(JSON.stringify(objects?.Resource)).toContain('/orgs/*')
+    const list = statements.find((s) => s.Action.includes('s3:ListBucket'))
+    expect(list?.Action).toEqual(['s3:ListBucket'])
+    expect(list?.Condition).toEqual({ StringLike: { 's3:prefix': ['orgs/*'] } })
+    expect(statements).toHaveLength(2)
   })
 })
