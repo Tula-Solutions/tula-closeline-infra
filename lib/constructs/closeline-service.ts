@@ -108,15 +108,11 @@ export class CloselineService extends Construct {
         })
       )
       // Without ListBucket, S3 answers 403 instead of 404 for a missing key, so a head of an
-      // absent object would throw. Listing is limited to the same prefix.
+      // absent object would throw. S3 sends no s3:prefix for HeadObject or GetObject, so a prefix
+      // condition would not match and the 403 would remain: the grant is bucket-wide. It exposes
+      // key names only, in a bucket this service owns.
       this.taskRole.addToPolicy(
-        new iam.PolicyStatement({
-          actions: ['s3:ListBucket'],
-          resources: [bucket.bucketArn],
-          ...(keyPrefix === ''
-            ? {}
-            : { conditions: { StringLike: { 's3:prefix': [`${keyPrefix}*`] } } }),
-        })
+        new iam.PolicyStatement({ actions: ['s3:ListBucket'], resources: [bucket.bucketArn] })
       )
     }
 

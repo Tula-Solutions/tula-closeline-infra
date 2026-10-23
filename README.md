@@ -49,7 +49,7 @@ rejects a collision, and `ENVIRONMENT` is reserved):
 - `queues`: a queue from the stage, its URL variable and its grant (`send`, `consume`, `both`).
 - `storage`: the data stack's bucket name under the given variable; the task role gets
   `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on objects under `keyPrefix` (default: the
-  whole bucket) and `s3:ListBucket` limited to that prefix, so a missing key is a 404, not a 403.
+  whole bucket) and `s3:ListBucket` on the bucket (key names only; a prefix condition would not apply to a head request), so a missing key is a 404, not a 403.
 
 The bucket and the Postgres endpoint reach the service stack as typed props. Core reads only
 `DATABASE_URL`, a full `postgres://` URL with credentials, so it is an owner-created secret and the

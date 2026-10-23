@@ -171,7 +171,7 @@ describe('the dev stage: core boot configuration', () => {
     expect(resources.some((r) => r.includes('QueuecorejobsQueue'))).toBe(true)
   })
 
-  test('core may get, put and delete under orgs/ and list only with the orgs/ prefix', () => {
+  test('core may get, put and delete under orgs/ and list the bucket (for a 404 on a missing key)', () => {
     const statements: { Action: string[]; Resource: unknown; Condition?: unknown }[] = []
     for (const policy of Object.values(core().findResources('AWS::IAM::Policy'))) {
       for (const s of policy.Properties.PolicyDocument.Statement) {
@@ -186,7 +186,8 @@ describe('the dev stage: core boot configuration', () => {
     expect(JSON.stringify(objects?.Resource)).toContain('/orgs/*')
     const list = statements.find((s) => s.Action.includes('s3:ListBucket'))
     expect(list?.Action).toEqual(['s3:ListBucket'])
-    expect(list?.Condition).toEqual({ StringLike: { 's3:prefix': ['orgs/*'] } })
+    // No s3:prefix condition: S3 sends none for a head of a missing key, so it would not match.
+    expect(list?.Condition).toBeUndefined()
     expect(statements).toHaveLength(2)
   })
 })

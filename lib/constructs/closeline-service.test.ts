@@ -201,7 +201,7 @@ describe('CloselineService', () => {
     expect(() => synth({ environment: { ENVIRONMENT: 'prod' } })).toThrow('unique')
   })
 
-  test('storage grants object get, put and delete on the key prefix only, plus a prefixed list', () => {
+  test('storage grants object get, put and delete on the key prefix only, plus an unconditional list', () => {
     const template = synth({ storage: true })
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       ContainerDefinitions: [
@@ -217,7 +217,8 @@ describe('CloselineService', () => {
       | { Action: string[]; Resource: unknown; Condition?: unknown }
       | undefined
     expect(list?.Action).toEqual(['s3:ListBucket'])
-    expect(list?.Condition).toEqual({ StringLike: { 's3:prefix': ['orgs/*'] } })
+    // No s3:prefix condition: S3 sends none for a head of a missing key, so it would not match.
+    expect(list?.Condition).toBeUndefined()
     expect(JSON.stringify(list?.Resource)).not.toContain('/*')
     expect(statements.flatMap((s) => s.Action).sort()).toEqual([
       's3:DeleteObject',
