@@ -3,6 +3,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2'
 import * as ecs from 'aws-cdk-lib/aws-ecs'
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2'
 import * as iam from 'aws-cdk-lib/aws-iam'
+import type * as kms from 'aws-cdk-lib/aws-kms'
 import * as logs from 'aws-cdk-lib/aws-logs'
 import type * as s3 from 'aws-cdk-lib/aws-s3'
 import type * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
@@ -37,6 +38,13 @@ export interface ServiceStorage {
   keyPrefix?: string
 }
 
+/** A KMS key a service seals data with, and the variable that carries its ARN. */
+export interface ServiceKmsKey {
+  key: kms.IKey
+  /** Environment variable holding the key ARN. */
+  envName: string
+}
+
 /** Where the ALB sends traffic for a service. */
 export interface ServiceRoute {
   listener: elbv2.IApplicationListener
@@ -64,6 +72,7 @@ export interface CloselineServiceProps {
   /** Non-secret settings, passed as plain environment values. */
   environment: Record<string, string>
   storage?: ServiceStorage
+  kmsKey?: ServiceKmsKey
   route?: ServiceRoute
 }
 
@@ -80,6 +89,7 @@ export class CloselineService extends Construct {
       ...props.secrets.map((s) => s.envName),
       ...Object.keys(props.environment),
       ...(props.storage ? [props.storage.envName] : []),
+      ...(props.kmsKey ? [props.kmsKey.envName] : []),
     ]
     if (new Set(envNames).size !== envNames.length || envNames.includes('ENVIRONMENT')) {
       throw new Error(`service ${props.serviceName}: environment variable names must be unique`)
@@ -117,6 +127,22 @@ export class CloselineService extends Construct {
       )
     }
 
+    if (props.kmsKey) {
+      // Envelope encryption needs these three and nothing else (no Describe, no Admin). The
+      // context condition ties every call to this service: a call that omits the context or names
+      // another service is refused by KMS. Granted on the role, not in the key policy, which
+      // delegates to IAM, so no second principal is named on the key.
+      this.taskRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey'],
+          resources: [props.kmsKey.key.keyArn],
+          conditions: {
+            StringEquals: { 'kms:EncryptionContext:closeline:service': props.serviceName },
+          },
+        })
+      )
+    }
+
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'Task', {
       cpu: props.cpu,
       memoryLimitMiB: props.memoryMiB,
@@ -133,6 +159,9 @@ export class CloselineService extends Construct {
     }
     if (props.storage) {
       environment[props.storage.envName] = props.storage.bucket.bucketName
+    }
+    if (props.kmsKey) {
+      environment[props.kmsKey.envName] = props.kmsKey.key.keyArn
     }
     for (const { queue, envName } of props.queues) {
       environment[envName] = queue.queueUrl

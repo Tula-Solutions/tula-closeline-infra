@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib'
 import * as ecr from 'aws-cdk-lib/aws-ecr'
 import * as ecs from 'aws-cdk-lib/aws-ecs'
 import type * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2'
+import type * as kms from 'aws-cdk-lib/aws-kms'
 import type * as s3 from 'aws-cdk-lib/aws-s3'
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import type * as sqs from 'aws-cdk-lib/aws-sqs'
@@ -20,6 +21,8 @@ export interface ServiceStackProps extends cdk.StackProps {
   queues: Record<string, { queue: sqs.IQueue }>
   /** The data stack's bucket, for a service that declares `storage`. */
   bucket: s3.IBucket
+  /** The data stack's CRM token key, for a service that declares `kmsKey`. */
+  crmTokenKey: kms.IKey
   /** The data stack's Postgres endpoint, published as an output for the owner's DATABASE_URL. */
   database: { address: string; port: string }
 }
@@ -74,6 +77,7 @@ export class ServiceStack extends cdk.Stack {
             },
           }
         : {}),
+      ...(spec.kmsKey ? { kmsKey: { key: props.crmTokenKey, envName: spec.kmsKey.envName } } : {}),
       route: {
         listener: props.listener,
         pathPatterns: spec.pathPatterns,

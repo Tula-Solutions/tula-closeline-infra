@@ -23,7 +23,10 @@ export class RegionStage extends cdk.Stage {
     }
 
     this.network = new NetworkStack(this, 'network', { natGateways: config.natGateways })
-    this.data = new DataStack(this, 'data', { vpc: this.network.vpc })
+    this.data = new DataStack(this, 'data', {
+      vpc: this.network.vpc,
+      environment: config.environment,
+    })
     // CloudFormation rejects an empty template, so no queues means no messaging stack.
     if (config.queues.length > 0) {
       this.messaging = new MessagingStack(this, 'messaging', { queues: config.queues })
@@ -40,6 +43,7 @@ export class RegionStage extends cdk.Stage {
         listener: this.edge.listener,
         queues: this.messaging?.queues ?? {},
         bucket: this.data.bucket,
+        crmTokenKey: this.data.crmTokenKey,
         database: {
           address: this.data.database.dbInstanceEndpointAddress,
           port: this.data.database.dbInstanceEndpointPort,
