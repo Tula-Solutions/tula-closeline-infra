@@ -23,9 +23,10 @@ export const stages: Record<string, StageDefinition> = {
         // Placeholders until core's CI pushes an image; deploying needs the real repository and tag.
         repositoryName: 'closeline/core',
         imageTag: 'placeholder',
-        // Core serves only /v1/*, plus /healthz and /readyz for the load balancer and /internal for
-        // other services, which stay off the public listener. Auth and the playbook take lower
-        // priority numbers for their own /v1 prefixes, which then win over this catch-all.
+        // Only /v1/* is routed. The listener's default action is a 404, which keeps /healthz,
+        // /readyz and /internal (service to service) unreachable through the load balancer.
+        // /v1/* will overlap auth's and the playbook's /v1 prefixes: settle their patterns and
+        // priorities when those services are added.
         pathPatterns: ['/v1/*'],
         healthCheckPath: '/healthz',
         priority: 100,
