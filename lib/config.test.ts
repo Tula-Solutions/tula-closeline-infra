@@ -138,6 +138,21 @@ describe('applySizing', () => {
     expect(svc?.desiredCount).toBe(svc?.autoscaling?.minCount)
   })
 
+  test.each([
+    ['dev', 1],
+    ['staging', 2],
+    ['prod', 2],
+  ])('%s gets %d NAT gateway(s)', (env, nat) => {
+    expect(stage(env).natGateways).toBe(nat)
+  })
+
+  test('a stage that sets natGateways keeps it', () => {
+    const sized = applySizing({ ...base, environment: 'prod', natGateways: 3 } as Parameters<
+      typeof applySizing
+    >[0])
+    expect(sized.natGateways).toBe(3)
+  })
+
   test('a service that sets its own count or bounds keeps them', () => {
     const own = { minCount: 3, maxCount: 4, cpuTargetPercent: 50 }
     const sized = applySizing({

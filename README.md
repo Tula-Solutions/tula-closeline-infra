@@ -64,6 +64,11 @@ The bucket, the key and the Postgres endpoint reach the service stack as typed p
 `DATABASE_URL`, a full `postgres://` URL with credentials, so it is an owner-created secret and the
 host and port are published as the service stack's `DatabaseHost` and `DatabasePort` outputs.
 
+### Auth's service settings
+
+Auth is not in a stage yet. When it joins, set `TRUSTED_PROXY_HOPS=1` in its `environment`: the ALB
+is the only edge hop, so the client address is the last `X-Forwarded-For` entry the ALB appended.
+
 ### Routing rule for `/v1/*`
 
 The ALB has one listener and a path belongs to one service. Each service claims its own

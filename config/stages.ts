@@ -6,15 +6,25 @@ export type StageDefinition = Omit<RegionConfigInput, 'account'>
 /** What differs by environment in size: the database's AZ spread and how services scale. */
 interface Sizing {
   multiAz: boolean
+  /** One per AZ the private tasks span, so a zone failure keeps outbound access in the others. */
+  natGateways: number
   /** Applied to every service that does not set its own `autoscaling`; none means a fixed count. */
   autoscaling?: { minCount: number; maxCount: number; cpuTargetPercent: number }
 }
 
 /** Sizing per environment. Dev is the small single-AZ stack; staging and prod spread and scale. */
 export const sizing: Record<StageDefinition['environment'], Sizing> = {
-  dev: { multiAz: false },
-  staging: { multiAz: true, autoscaling: { minCount: 2, maxCount: 4, cpuTargetPercent: 60 } },
-  prod: { multiAz: true, autoscaling: { minCount: 2, maxCount: 10, cpuTargetPercent: 60 } },
+  dev: { multiAz: false, natGateways: 1 },
+  staging: {
+    multiAz: true,
+    natGateways: 2,
+    autoscaling: { minCount: 2, maxCount: 4, cpuTargetPercent: 60 },
+  },
+  prod: {
+    multiAz: true,
+    natGateways: 2,
+    autoscaling: { minCount: 2, maxCount: 10, cpuTargetPercent: 60 },
+  },
 }
 
 /**
@@ -27,6 +37,7 @@ export function applySizing(definition: StageDefinition): StageDefinition {
   const { autoscaling } = size
   return {
     multiAz: size.multiAz,
+    natGateways: size.natGateways,
     ...definition,
     services: definition.services?.map((service) =>
       autoscaling ? { desiredCount: autoscaling.minCount, autoscaling, ...service } : service
