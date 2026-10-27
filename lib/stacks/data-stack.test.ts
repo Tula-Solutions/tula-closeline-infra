@@ -4,15 +4,22 @@ import { Template } from 'aws-cdk-lib/assertions'
 import { DataStack } from './data-stack'
 import { NetworkStack } from './network-stack'
 
-function synth(): Template {
+function build(): DataStack {
   const app = new App()
   const env = { account: '123456789012', region: 'us-east-1' }
   const { vpc } = new NetworkStack(app, 'net', { env, natGateways: 1 })
-  return Template.fromStack(new DataStack(app, 'data', { env, vpc, environment: 'dev' }))
+  return new DataStack(app, 'data', {
+    env,
+    vpc,
+    environment: 'dev',
+    crmTokenRoleNames: ['closeline-dev-us-east-1-core-task'],
+  })
 }
 
+const stack = build()
+
 describe('DataStack', () => {
-  const template = synth()
+  const template = Template.fromStack(stack)
 
   test('the database is encrypted, private, protected and retained', () => {
     template.hasResource('AWS::RDS::DBInstance', {
@@ -81,12 +88,43 @@ describe('DataStack', () => {
     })
   })
 
-  test('the key policy names only the account root: no other principal can decrypt', () => {
-    const keys = Object.values(template.findResources('AWS::KMS::Key'))
-    const statements: { Principal: unknown; Effect: string }[] =
-      keys[0]?.Properties.KeyPolicy.Statement ?? []
-    expect(statements).toHaveLength(1)
-    expect(statements[0]?.Effect).toBe('Allow')
-    expect(JSON.stringify(statements[0]?.Principal)).toContain(':root')
+  test('the key policy lets the account administer the key but not use it', () => {
+    const statements = keyStatements()
+    const admin = statements.find((s) => s.Sid === 'KeyAdministration')
+    expect(JSON.stringify(admin?.Principal)).toContain(':root')
+    expect(admin?.Action).toContain('kms:PutKeyPolicy')
+    for (const use of ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey', 'kms:CreateGrant']) {
+      expect(admin?.Action).not.toContain(use)
+    }
+  })
+
+  test('only the named core task role may use the key', () => {
+    const use = keyStatements().find((s) => s.Sid === 'ServiceUse')
+    expect([use?.Action].flat().sort()).toEqual([
+      'kms:Decrypt',
+      'kms:Encrypt',
+      'kms:GenerateDataKey',
+    ])
+    expect(JSON.stringify(use?.Condition)).toContain(':role/closeline-dev-us-east-1-core-task')
+    expect(Object.keys(use?.Condition ?? {})).toEqual(['ArnEquals'])
+  })
+
+  test('no statement grants kms:* or a wildcard principal', () => {
+    for (const s of keyStatements()) {
+      expect(JSON.stringify(s.Action)).not.toContain('kms:*')
+      expect(JSON.stringify(s.Principal)).not.toContain('"*"')
+    }
   })
 })
+
+interface KeyStatement {
+  Sid: string
+  Principal: unknown
+  Action: string | string[]
+  Condition?: Record<string, unknown>
+}
+
+function keyStatements(): KeyStatement[] {
+  const keys = Object.values(Template.fromStack(stack).findResources('AWS::KMS::Key'))
+  return keys[0]?.Properties.KeyPolicy.Statement ?? []
+}

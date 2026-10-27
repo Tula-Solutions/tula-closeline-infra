@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib'
 import type { Construct } from 'constructs'
-import type { RegionConfig } from './config'
+import { type RegionConfig, taskRoleName } from './config'
 import { DataStack } from './stacks/data-stack'
 import { EdgeStack } from './stacks/edge-stack'
 import { MessagingStack } from './stacks/messaging-stack'
@@ -26,6 +26,9 @@ export class RegionStage extends cdk.Stage {
     this.data = new DataStack(this, 'data', {
       vpc: this.network.vpc,
       environment: config.environment,
+      crmTokenRoleNames: config.services
+        .filter((spec) => spec.kmsKey)
+        .map((spec) => taskRoleName(config.environment, config.region, spec.name)),
     })
     // CloudFormation rejects an empty template, so no queues means no messaging stack.
     if (config.queues.length > 0) {

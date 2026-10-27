@@ -8,7 +8,7 @@ import type * as s3 from 'aws-cdk-lib/aws-s3'
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import type * as sqs from 'aws-cdk-lib/aws-sqs'
 import type { Construct } from 'constructs'
-import { type RegionConfig, type ServiceSpec, secretName } from '../config'
+import { type RegionConfig, type ServiceSpec, secretName, taskRoleName } from '../config'
 import { CloselineService } from '../constructs/closeline-service'
 import type { NetworkStack } from './network-stack'
 
@@ -45,6 +45,7 @@ export class ServiceStack extends cdk.Stack {
     const repository = ecr.Repository.fromRepositoryName(this, 'Repo', spec.repositoryName)
     this.service = new CloselineService(this, 'Service', {
       serviceName: spec.name,
+      taskRoleName: taskRoleName(props.environment, this.region, spec.name),
       stage: props.environment,
       vpc: props.network.vpc,
       cluster: props.network.cluster,

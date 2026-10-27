@@ -254,3 +254,15 @@ describe('the dev stage: database access', () => {
     })
   })
 })
+
+describe('the dev stage: CRM key policy', () => {
+  test('core has the fixed role name the key policy names, and the key policy names it', () => {
+    core().hasResourceProperties('AWS::IAM::Role', {
+      RoleName: 'closeline-dev-us-east-1-core-task',
+    })
+    const key = Object.values(Template.fromStack(dev.data).findResources('AWS::KMS::Key'))[0]
+    expect(JSON.stringify(key?.Properties.KeyPolicy)).toContain(
+      ':role/closeline-dev-us-east-1-core-task'
+    )
+  })
+})

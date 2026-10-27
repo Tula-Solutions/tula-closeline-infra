@@ -30,6 +30,15 @@ export function secretName(environment: string, service: string, name: string): 
   return `closeline/${environment}/${service}/${name}`
 }
 
+/**
+ * The fixed name of a service's task role, so the data stack's key policy can name it without
+ * depending on the service stack (which depends on the data stack). IAM names are global to the
+ * account, hence the Region.
+ */
+export function taskRoleName(environment: string, region: string, service: string): string {
+  return `closeline-${environment}-${region}-${service}-task`
+}
+
 /** One Closeline service to run: where its image lives, how it is routed and what it may use. */
 export const serviceSpecSchema = z
   .object({
