@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { App, Duration, Stack } from 'aws-cdk-lib'
 import { Match, Template } from 'aws-cdk-lib/assertions'
+import * as sns from 'aws-cdk-lib/aws-sns'
 import { QueueWithDlq } from './queue-with-dlq'
 
 function synth(visibilityTimeout?: Duration): Template {
@@ -63,5 +64,18 @@ describe('QueueWithDlq', () => {
     const template = synth()
     template.allResourcesProperties('AWS::SQS::Queue', { SqsManagedSseEnabled: true })
     template.resourceCountIs('AWS::SQS::QueuePolicy', 2)
+  })
+
+  test('the alarm notifies the topic when one is given, and nobody otherwise', () => {
+    const stack = new Stack(new App(), 'with-topic')
+    const alarmTopic = new sns.Topic(stack, 'Alarms')
+    new QueueWithDlq(stack, 'Jobs', { queueName: 'core-jobs', alarmTopic })
+    const withTopic = Template.fromStack(stack)
+    withTopic.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmActions: [{ Ref: Match.stringLikeRegexp('^Alarms') }],
+    })
+    expect(
+      Object.values(synth().findResources('AWS::CloudWatch::Alarm'))[0]?.Properties.AlarmActions
+    ).toBeUndefined()
   })
 })

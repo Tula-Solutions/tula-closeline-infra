@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as cdk from 'aws-cdk-lib'
-import { stages } from '../config/stages'
+import { applySizing, stages } from '../config/stages'
 import { parseRegionConfig } from '../lib/config'
 import { RegionStage } from '../lib/region-stage'
 
@@ -11,7 +11,11 @@ import { RegionStage } from '../lib/region-stage'
 const outdir = mkdtempSync(join(tmpdir(), 'closeline-synth-'))
 const app = new cdk.App({ outdir, analyticsReporting: false })
 for (const [name, definition] of Object.entries(stages)) {
-  new RegionStage(app, name, parseRegionConfig({ ...definition, account: '000000000000' }))
+  new RegionStage(
+    app,
+    name,
+    parseRegionConfig({ ...applySizing(definition), account: '000000000000' })
+  )
 }
 const assembly = app.synth()
 let count = 0

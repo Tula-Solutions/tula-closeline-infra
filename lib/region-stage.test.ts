@@ -100,3 +100,35 @@ describe('a Region with a queue and a service', () => {
     template.resourceCountIs('AWS::CloudWatch::Alarm', 1)
   })
 })
+
+describe('stack termination protection', () => {
+  const protectedStatus = (environment: 'dev' | 'staging'): boolean[] => {
+    const stage = new RegionStage(
+      new App(),
+      environment,
+      parseRegionConfig({
+        ...stages.dev,
+        environment,
+        account,
+        certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/abc',
+      })
+    )
+    return [
+      stage.network,
+      stage.data,
+      stage.edge,
+      ...(stage.messaging ? [stage.messaging] : []),
+      ...Object.values(stage.services),
+    ].map((stack) => stack.terminationProtection)
+  }
+
+  test('every stack of a staging stage is protected', () => {
+    const status = protectedStatus('staging')
+    expect(status.length).toBeGreaterThanOrEqual(5)
+    expect(status.every(Boolean)).toBe(true)
+  })
+
+  test('no stack of the dev stage is, so it can be torn down', () => {
+    expect(protectedStatus('dev').some(Boolean)).toBe(false)
+  })
+})

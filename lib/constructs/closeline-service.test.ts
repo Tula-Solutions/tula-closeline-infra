@@ -20,6 +20,7 @@ interface Options {
   environment?: Record<string, string>
   storage?: boolean
   kmsKey?: boolean
+  autoscaling?: CloselineServiceProps['autoscaling']
 }
 
 function synth(options: Options = {}): Template {
@@ -44,6 +45,7 @@ function synth(options: Options = {}): Template {
     queues: options.queues?.(jobs) ?? [],
     secrets: options.secrets?.(secret) ?? [],
     environment: options.environment ?? {},
+    ...(options.autoscaling ? { autoscaling: options.autoscaling } : {}),
     ...(options.storage
       ? {
           storage: {
@@ -284,5 +286,24 @@ describe('CloselineService', () => {
 
   test('a KMS variable that collides with another source is rejected', () => {
     expect(() => synth({ kmsKey: true, environment: { CRM_TOKEN_KMS_KEY_ARN: 'x' } })).toThrow()
+  })
+
+  test('without autoscaling the service has a fixed count and no scaling target', () => {
+    const template = synth()
+    template.hasResourceProperties('AWS::ECS::Service', { DesiredCount: 1 })
+    template.resourceCountIs('AWS::ApplicationAutoScaling::ScalableTarget', 0)
+  })
+
+  test('with autoscaling the count floats between the bounds on CPU, and is not pinned', () => {
+    const template = synth({ autoscaling: { minCount: 2, maxCount: 6, cpuTargetPercent: 60 } })
+    template.hasResourceProperties('AWS::ApplicationAutoScaling::ScalableTarget', {
+      MinCapacity: 2,
+      MaxCapacity: 6,
+    })
+    template.hasResourceProperties('AWS::ApplicationAutoScaling::ScalingPolicy', {
+      TargetTrackingScalingPolicyConfiguration: Match.objectLike({ TargetValue: 60 }),
+    })
+    const service = Object.values(template.findResources('AWS::ECS::Service'))[0]
+    expect(service?.Properties.DesiredCount).toBeUndefined()
   })
 })

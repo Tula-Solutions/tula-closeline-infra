@@ -58,6 +58,8 @@ export interface ServiceRoute {
 export interface CloselineServiceProps {
   /** Service name, e.g. `core`. */
   serviceName: string
+  /** Fixed name of the task role, for a resource policy (such as a key policy) that names it. */
+  taskRoleName?: string
   /** The deployment environment, passed as `ENVIRONMENT`. */
   stage: (typeof environmentSchema)['_output']
   vpc: ec2.IVpc
@@ -67,6 +69,8 @@ export interface CloselineServiceProps {
   cpu: number
   memoryMiB: number
   desiredCount: number
+  /** Scales the task count on CPU between the bounds; `desiredCount` is then left to scaling. */
+  autoscaling?: { minCount: number; maxCount: number; cpuTargetPercent: number }
   queues: ServiceQueue[]
   secrets: ServiceSecret[]
   /** Non-secret settings, passed as plain environment values. */
@@ -97,6 +101,7 @@ export class CloselineService extends Construct {
 
     this.taskRole = new iam.Role(this, 'TaskRole', {
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      roleName: props.taskRoleName,
       description: `Task role of the ${props.serviceName} service`,
     })
     for (const { queue, access } of props.queues) {
@@ -131,7 +136,7 @@ export class CloselineService extends Construct {
       // Envelope encryption needs these three and nothing else (no Describe, no Admin). The
       // context condition ties every call to this service: a call that omits the context or names
       // another service is refused by KMS. Granted on the role, not in the key policy, which
-      // delegates to IAM, so no second principal is named on the key.
+      // admits the role by name with this policy as the second half, so the key policy names the role.
       this.taskRole.addToPolicy(
         new iam.PolicyStatement({
           actions: ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey'],
@@ -185,12 +190,23 @@ export class CloselineService extends Construct {
     this.service = new ecs.FargateService(this, 'Service', {
       cluster: props.cluster,
       taskDefinition,
-      desiredCount: props.desiredCount,
+      desiredCount: props.autoscaling ? undefined : props.desiredCount,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       circuitBreaker: { enable: true, rollback: true },
       minHealthyPercent: 100,
       maxHealthyPercent: 200,
     })
+
+    if (props.autoscaling) {
+      this.service
+        .autoScaleTaskCount({
+          minCapacity: props.autoscaling.minCount,
+          maxCapacity: props.autoscaling.maxCount,
+        })
+        .scaleOnCpuUtilization('Cpu', {
+          targetUtilizationPercent: props.autoscaling.cpuTargetPercent,
+        })
+    }
 
     if (props.route) {
       const targetGroup = new elbv2.ApplicationTargetGroup(this, 'Targets', {

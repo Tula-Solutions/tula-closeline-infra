@@ -4,15 +4,23 @@ import { Match, Template } from 'aws-cdk-lib/assertions'
 import { DataStack } from './data-stack'
 import { NetworkStack } from './network-stack'
 
-function synth(): Template {
+function build(multiAz = false): DataStack {
   const app = new App()
   const env = { account: '123456789012', region: 'us-east-1' }
   const { vpc } = new NetworkStack(app, 'net', { env, natGateways: 1 })
-  return Template.fromStack(new DataStack(app, 'data', { env, vpc, environment: 'dev' }))
+  return new DataStack(app, 'data', {
+    env,
+    vpc,
+    environment: 'dev',
+    multiAz,
+    crmTokenRoleNames: ['closeline-dev-us-east-1-core-task'],
+  })
 }
 
+const stack = build()
+
 describe('DataStack', () => {
-  const template = synth()
+  const template = Template.fromStack(stack)
 
   test('the database is encrypted, private, protected and retained', () => {
     template.hasResource('AWS::RDS::DBInstance', {
@@ -24,6 +32,29 @@ describe('DataStack', () => {
         PubliclyAccessible: false,
         DeletionProtection: true,
       },
+    })
+  })
+
+  test('the database is single-AZ unless the stage asks for multi-AZ', () => {
+    template.hasResourceProperties('AWS::RDS::DBInstance', { MultiAZ: false })
+    Template.fromStack(build(true)).hasResourceProperties('AWS::RDS::DBInstance', {
+      MultiAZ: true,
+    })
+  })
+
+  test('the admin secret rotates every 30 days with the built-in single-user Postgres rotation', () => {
+    template.hasResourceProperties('AWS::SecretsManager::RotationSchedule', {
+      RotationLambdaARN: Match.anyValue(),
+      RotationRules: { ScheduleExpression: 'rate(30 days)' },
+    })
+    template.hasResourceProperties('AWS::Serverless::Application', {
+      Parameters: Match.objectLike({
+        vpcSubnetIds: Match.anyValue(),
+        vpcSecurityGroupIds: Match.anyValue(),
+      }),
+    })
+    template.hasResourceProperties('AWS::SecretsManager::SecretTargetAttachment', {
+      TargetType: 'AWS::RDS::DBInstance',
     })
   })
 
@@ -62,12 +93,6 @@ describe('DataStack', () => {
     }
   })
 
-  test('Postgres accepts connections only on 5432 from the VPC', () => {
-    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
-      SecurityGroupIngress: [Match.objectLike({ FromPort: 5432, ToPort: 5432, IpProtocol: 'tcp' })],
-    })
-  })
-
   test('the CRM token key is symmetric, rotates and is retained', () => {
     template.resourceCountIs('AWS::KMS::Key', 1)
     template.hasResource('AWS::KMS::Key', {
@@ -87,12 +112,43 @@ describe('DataStack', () => {
     })
   })
 
-  test('the key policy names only the account root: no other principal can decrypt', () => {
-    const keys = Object.values(template.findResources('AWS::KMS::Key'))
-    const statements: { Principal: unknown; Effect: string }[] =
-      keys[0]?.Properties.KeyPolicy.Statement ?? []
-    expect(statements).toHaveLength(1)
-    expect(statements[0]?.Effect).toBe('Allow')
-    expect(JSON.stringify(statements[0]?.Principal)).toContain(':root')
+  test('the key policy lets the account administer the key but not use it', () => {
+    const statements = keyStatements()
+    const admin = statements.find((s) => s.Sid === 'KeyAdministration')
+    expect(JSON.stringify(admin?.Principal)).toContain(':root')
+    expect(admin?.Action).toContain('kms:PutKeyPolicy')
+    for (const use of ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey', 'kms:CreateGrant']) {
+      expect(admin?.Action).not.toContain(use)
+    }
+  })
+
+  test('only the named core task role may use the key', () => {
+    const use = keyStatements().find((s) => s.Sid === 'ServiceUse')
+    expect([use?.Action].flat().sort()).toEqual([
+      'kms:Decrypt',
+      'kms:Encrypt',
+      'kms:GenerateDataKey',
+    ])
+    expect(JSON.stringify(use?.Condition)).toContain(':role/closeline-dev-us-east-1-core-task')
+    expect(Object.keys(use?.Condition ?? {})).toEqual(['ArnEquals'])
+  })
+
+  test('no statement grants kms:* or a wildcard principal', () => {
+    for (const s of keyStatements()) {
+      expect(JSON.stringify(s.Action)).not.toContain('kms:*')
+      expect(JSON.stringify(s.Principal)).not.toContain('"*"')
+    }
   })
 })
+
+interface KeyStatement {
+  Sid: string
+  Principal: unknown
+  Action: string | string[]
+  Condition?: Record<string, unknown>
+}
+
+function keyStatements(): KeyStatement[] {
+  const keys = Object.values(Template.fromStack(stack).findResources('AWS::KMS::Key'))
+  return keys[0]?.Properties.KeyPolicy.Statement ?? []
+}

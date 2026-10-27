@@ -30,6 +30,15 @@ export function secretName(environment: string, service: string, name: string): 
   return `closeline/${environment}/${service}/${name}`
 }
 
+/**
+ * The fixed name of a service's task role, so the data stack's key policy can name it without
+ * depending on the service stack (which depends on the data stack). IAM names are global to the
+ * account, hence the Region.
+ */
+export function taskRoleName(environment: string, region: string, service: string): string {
+  return `closeline-${environment}-${region}-${service}-task`
+}
+
 /** One Closeline service to run: where its image lives, how it is routed and what it may use. */
 export const serviceSpecSchema = z
   .object({
@@ -41,6 +50,15 @@ export const serviceSpecSchema = z
     cpu: z.number().int().default(256),
     memoryMiB: z.number().int().default(512),
     desiredCount: z.number().int().min(0).default(1),
+    /** Scale the task count on CPU between the bounds; `desiredCount` is then not pinned. */
+    autoscaling: z
+      .object({
+        minCount: z.number().int().min(1),
+        maxCount: z.number().int().min(1),
+        cpuTargetPercent: z.number().int().min(10).max(90).default(60),
+      })
+      .refine((a) => a.maxCount >= a.minCount, 'maxCount must be at least minCount')
+      .optional(),
     /**
      * ALB path patterns. The listener holds one rule per service, so a pattern must not be claimed
      * by two services: give each service its own `/v1/<prefix>/*` patterns, or, where one prefix is
@@ -116,6 +134,8 @@ export const regionConfigSchema = z.object({
   region: z.string().regex(/^[a-z]{2}(-[a-z]+)+-\d$/, 'region must look like us-east-1'),
   environment: environmentSchema,
   natGateways: z.number().int().min(1).max(3).default(1),
+  /** Run the database with a standby in a second Availability Zone. */
+  multiAz: z.boolean().default(false),
   /** ACM certificate ARN. When set the ALB serves HTTPS and redirects HTTP. */
   certificateArn: z.string().startsWith('arn:aws:acm:').optional(),
   queues: z.array(queueSpecSchema).default([]),
@@ -148,6 +168,12 @@ export function parseRegionConfig(input: unknown): RegionConfig {
       throw new Error(`service name ${service.name} is used twice`)
     }
     names.add(service.name)
+    const roleName = taskRoleName(config.environment, config.region, service.name)
+    if (roleName.length > 64) {
+      throw new Error(
+        `task role name ${roleName} is over IAM's 64 characters; shorten the service name`
+      )
+    }
     if (priorities.has(service.priority)) {
       throw new Error(`listener priority ${service.priority} is used twice`)
     }

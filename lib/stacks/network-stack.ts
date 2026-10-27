@@ -24,6 +24,12 @@ export class NetworkStack extends cdk.Stack {
         { name: 'data', subnetType: ec2.SubnetType.PRIVATE_ISOLATED, cidrMask: 24 },
       ],
     })
+    // Rotating the database secret runs a Lambda in the isolated data subnets, which have no
+    // route out; it reaches Secrets Manager through this endpoint instead.
+    this.vpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
+      subnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+    })
     this.cluster = new ecs.Cluster(this, 'Cluster', {
       vpc: this.vpc,
       containerInsightsV2: ecs.ContainerInsights.ENABLED,

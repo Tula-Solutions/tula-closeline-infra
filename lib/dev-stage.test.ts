@@ -27,13 +27,13 @@ describe('the dev stage: core-jobs queue', () => {
     const template = Template.fromStack(dev.messaging)
     template.resourceCountIs('AWS::SQS::Queue', 4)
     template.hasResourceProperties('AWS::SQS::Queue', {
-      QueueName: 'core-jobs',
+      QueueName: 'closeline-dev-core-jobs',
       VisibilityTimeout: 180,
       RedrivePolicy: { maxReceiveCount: 5, deadLetterTargetArn: Match.anyValue() },
     })
-    template.hasResourceProperties('AWS::SQS::Queue', { QueueName: 'core-jobs-dlq' })
+    template.hasResourceProperties('AWS::SQS::Queue', { QueueName: 'closeline-dev-core-jobs-dlq' })
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
-      AlarmName: 'core-jobs-dlq-not-empty',
+      AlarmName: 'closeline-dev-core-jobs-dlq-not-empty',
       MetricName: 'ApproximateNumberOfMessagesVisible',
       Threshold: 1,
     })
@@ -156,7 +156,7 @@ describe('the dev stage: core boot configuration', () => {
       throw new Error('the dev stage has no messaging stack')
     }
     Template.fromStack(dev.messaging).hasResourceProperties('AWS::SQS::Queue', {
-      QueueName: 'core-events',
+      QueueName: 'closeline-dev-core-events',
       RedrivePolicy: { maxReceiveCount: 5, deadLetterTargetArn: Match.anyValue() },
     })
     const resources: string[] = []
@@ -230,5 +230,56 @@ describe('the dev stage: core boot configuration', () => {
         }
       }
     }
+  })
+})
+
+describe('the dev stage: database access', () => {
+  test('the database security group has no CIDR rule; only the core service group may connect', () => {
+    const data = Template.fromStack(dev.data)
+    for (const sg of Object.values(data.findResources('AWS::EC2::SecurityGroup'))) {
+      expect(JSON.stringify(sg.Properties.SecurityGroupIngress ?? [])).not.toContain('CidrIp')
+    }
+    const rules = Object.values(core().findResources('AWS::EC2::SecurityGroupIngress')).filter(
+      (r) => r.Properties.FromPort === 5432
+    )
+    expect(rules).toHaveLength(1)
+    expect(rules[0]?.Properties).toMatchObject({
+      FromPort: 5432,
+      ToPort: 5432,
+      IpProtocol: 'tcp',
+      GroupId: { 'Fn::ImportValue': expect.stringMatching(/^dev-data:.*DatabaseSg.*GroupId/) },
+      SourceSecurityGroupId: {
+        'Fn::GetAtt': [expect.stringContaining('SecurityGroup'), 'GroupId'],
+      },
+    })
+  })
+})
+
+describe('the dev stage: CRM key policy', () => {
+  test('core has the fixed role name the key policy names, and the key policy names it', () => {
+    core().hasResourceProperties('AWS::IAM::Role', {
+      RoleName: 'closeline-dev-us-east-1-core-task',
+    })
+    const key = Object.values(Template.fromStack(dev.data).findResources('AWS::KMS::Key'))[0]
+    expect(JSON.stringify(key?.Properties.KeyPolicy)).toContain(
+      ':role/closeline-dev-us-east-1-core-task'
+    )
+  })
+})
+
+describe('the dev stage: alarm topic', () => {
+  test('every DLQ alarm notifies the messaging stack topic, which refuses plain HTTP', () => {
+    if (!dev.messaging) {
+      throw new Error('the dev stage has no messaging stack')
+    }
+    const template = Template.fromStack(dev.messaging)
+    template.resourceCountIs('AWS::SNS::Topic', 1)
+    template.resourceCountIs('AWS::SNS::TopicPolicy', 1)
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm'))
+    expect(alarms).toHaveLength(2)
+    for (const alarm of alarms) {
+      expect(alarm.Properties.AlarmActions).toHaveLength(1)
+    }
+    expect(Object.keys(template.toJSON().Outputs)).toContain('AlarmTopicArn')
   })
 })
