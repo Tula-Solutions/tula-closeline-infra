@@ -26,4 +26,20 @@ describe('the deploy workflow', () => {
     expect(run).toContain('refs/heads/main')
     expect(run).toContain('exit 1')
   })
+
+  test('pairs each stage with its branch: dev and staging from develop, prod from main', () => {
+    const guard = deploy.steps.find((step) => step.name === 'refuse an unreviewed ref')
+    const run = guard?.run ?? ''
+    const allowed = (stage: string, ref: string) =>
+      Bun.spawnSync(['bash', '-c', run], { env: { STAGE: stage, GITHUB_REF: ref } }).exitCode === 0
+    expect(run).toContain('$STAGE:$GITHUB_REF')
+    expect(allowed('dev', 'refs/heads/develop')).toBe(true)
+    expect(allowed('staging', 'refs/heads/develop')).toBe(true)
+    expect(allowed('prod', 'refs/heads/main')).toBe(true)
+    expect(allowed('prod', 'refs/heads/develop')).toBe(false)
+    expect(allowed('dev', 'refs/heads/main')).toBe(false)
+    expect(allowed('staging', 'refs/heads/main')).toBe(false)
+    expect(allowed('dev', 'refs/heads/feat/x')).toBe(false)
+    expect(allowed('other', 'refs/heads/develop')).toBe(false)
+  })
 })
