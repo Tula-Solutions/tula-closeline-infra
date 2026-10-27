@@ -22,11 +22,17 @@ export class RegionStage extends cdk.Stage {
       cdk.Tags.of(this).add(key, value)
     }
 
-    this.network = new NetworkStack(this, 'network', { natGateways: config.natGateways })
+    // Outside dev a stack cannot be deleted by accident; dev is torn down freely.
+    const terminationProtection = config.environment !== 'dev'
+    this.network = new NetworkStack(this, 'network', {
+      natGateways: config.natGateways,
+      terminationProtection,
+    })
     this.data = new DataStack(this, 'data', {
       vpc: this.network.vpc,
       environment: config.environment,
       multiAz: config.multiAz,
+      terminationProtection,
       crmTokenRoleNames: config.services
         .filter((spec) => spec.kmsKey)
         .map((spec) => taskRoleName(config.environment, config.region, spec.name)),
@@ -36,15 +42,19 @@ export class RegionStage extends cdk.Stage {
       this.messaging = new MessagingStack(this, 'messaging', {
         environment: config.environment,
         queues: config.queues,
+        terminationProtection,
       })
     }
     this.edge = new EdgeStack(this, 'edge', {
       vpc: this.network.vpc,
       certificateArn: config.certificateArn,
+      deletionProtection: terminationProtection,
+      terminationProtection,
     })
     for (const spec of config.services) {
       this.services[spec.name] = new ServiceStack(this, `service-${spec.name}`, {
         environment: config.environment,
+        terminationProtection,
         spec,
         network: this.network,
         listener: this.edge.listener,
