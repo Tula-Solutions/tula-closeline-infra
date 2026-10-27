@@ -17,7 +17,11 @@ export const sizing: Record<StageDefinition['environment'], Sizing> = {
   prod: { multiAz: true, autoscaling: { minCount: 2, maxCount: 10, cpuTargetPercent: 60 } },
 }
 
-/** Fills a stage definition with its environment's sizing; anything the stage sets itself wins. */
+/**
+ * Fills a stage definition with its environment's sizing; anything the stage sets itself wins.
+ * Where autoscaling applies, a service's `desiredCount` is only its starting point: the scaler
+ * owns the count.
+ */
 export function applySizing(definition: StageDefinition): StageDefinition {
   const size = sizing[definition.environment]
   const { autoscaling } = size

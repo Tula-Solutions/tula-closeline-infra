@@ -108,6 +108,17 @@ describe('parseRegionConfig', () => {
   })
 })
 
+describe('task role name length', () => {
+  test('a service name that makes the IAM role name exceed 64 characters is rejected', () => {
+    const input = {
+      ...base,
+      region: 'ap-southeast-2',
+      services: [{ ...service, name: 'a'.repeat(31) }],
+    }
+    expect(() => parseRegionConfig(input)).toThrow('64')
+  })
+})
+
 describe('applySizing', () => {
   const stage = (environment: string) =>
     applySizing({ ...base, environment, services: [service] } as Parameters<typeof applySizing>[0])

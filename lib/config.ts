@@ -168,6 +168,12 @@ export function parseRegionConfig(input: unknown): RegionConfig {
       throw new Error(`service name ${service.name} is used twice`)
     }
     names.add(service.name)
+    const roleName = taskRoleName(config.environment, config.region, service.name)
+    if (roleName.length > 64) {
+      throw new Error(
+        `task role name ${roleName} is over IAM's 64 characters; shorten the service name`
+      )
+    }
     if (priorities.has(service.priority)) {
       throw new Error(`listener priority ${service.priority} is used twice`)
     }
