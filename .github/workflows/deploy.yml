@@ -33,9 +33,9 @@ jobs:
       # Holds even before the environment's branch rule is set in GitHub.
       - name: refuse an unreviewed ref
         run: |
-          case "$GITHUB_REF" in
-            refs/heads/develop | refs/heads/main) ;;
-            *) echo "::error::deploys run only from develop or main, not $GITHUB_REF"; exit 1 ;;
+          case "$STAGE:$GITHUB_REF" in
+            dev:refs/heads/develop | staging:refs/heads/develop | prod:refs/heads/main) ;;
+            *) echo "::error::$STAGE deploys only from its branch (dev and staging: develop, prod: main), not $GITHUB_REF"; exit 1 ;;
           esac
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

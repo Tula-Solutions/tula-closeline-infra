@@ -64,6 +64,11 @@ The bucket, the key and the Postgres endpoint reach the service stack as typed p
 `DATABASE_URL`, a full `postgres://` URL with credentials, so it is an owner-created secret and the
 host and port are published as the service stack's `DatabaseHost` and `DatabasePort` outputs.
 
+### Auth's service settings
+
+Auth is not in a stage yet. When it joins, set `TRUSTED_PROXY_HOPS=1` in its `environment`: the ALB
+is the only edge hop, so the client address is the last `X-Forwarded-For` entry the ALB appended.
+
 ### Routing rule for `/v1/*`
 
 The ALB has one listener and a path belongs to one service. Each service claims its own
@@ -95,6 +100,8 @@ Nobody deploys from a laptop. Until these exist the deploy workflow cannot run.
    `config/stages.ts`. Under deployment branches allow only `develop` (and `main` for prod); for
    `staging` and `prod` add required reviewers. The deploy job runs in that environment, so its
    OIDC subject is the one the role trusts, and the workflow also refuses any other branch.
+   Test it: dispatch the workflow from a branch other than the stage's (`develop` for dev and
+   staging, `main` for prod); it must fail at the "refuse an unreviewed ref" step.
 4. **Set repository variables** (Settings, Secrets and variables, Actions, Variables):
    `AWS_DEPLOY_ROLE_ARN` (the role above), `AWS_REGION` (the stage's Region) and `AWS_ACCOUNT_ID`.
 5. **Create the secrets** each service lists in `config/stages.ts` in Secrets Manager, named
