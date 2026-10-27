@@ -1,5 +1,7 @@
 import { Duration } from 'aws-cdk-lib'
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch'
+import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions'
+import type * as sns from 'aws-cdk-lib/aws-sns'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
 
@@ -12,6 +14,8 @@ export interface QueueWithDlqProps {
   queueName: string
   /** Must exceed the longest time a consumer needs for one message. Default 30 seconds. */
   visibilityTimeout?: Duration
+  /** Topic the alarm notifies when it fires; no notification when omitted. */
+  alarmTopic?: sns.ITopic
 }
 
 /** A queue whose failures land in a dead-letter queue that raises a CloudWatch alarm. */
@@ -47,5 +51,8 @@ export class QueueWithDlq extends Construct {
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     })
+    if (props.alarmTopic) {
+      this.alarm.addAlarmAction(new cwActions.SnsAction(props.alarmTopic))
+    }
   }
 }

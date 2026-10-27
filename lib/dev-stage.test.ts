@@ -266,3 +266,20 @@ describe('the dev stage: CRM key policy', () => {
     )
   })
 })
+
+describe('the dev stage: alarm topic', () => {
+  test('every DLQ alarm notifies the messaging stack topic, which refuses plain HTTP', () => {
+    if (!dev.messaging) {
+      throw new Error('the dev stage has no messaging stack')
+    }
+    const template = Template.fromStack(dev.messaging)
+    template.resourceCountIs('AWS::SNS::Topic', 1)
+    template.resourceCountIs('AWS::SNS::TopicPolicy', 1)
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm'))
+    expect(alarms).toHaveLength(2)
+    for (const alarm of alarms) {
+      expect(alarm.Properties.AlarmActions).toHaveLength(1)
+    }
+    expect(Object.keys(template.toJSON().Outputs)).toContain('AlarmTopicArn')
+  })
+})
