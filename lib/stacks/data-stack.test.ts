@@ -4,7 +4,7 @@ import { Template } from 'aws-cdk-lib/assertions'
 import { DataStack } from './data-stack'
 import { NetworkStack } from './network-stack'
 
-function build(): DataStack {
+function build(multiAz = false): DataStack {
   const app = new App()
   const env = { account: '123456789012', region: 'us-east-1' }
   const { vpc } = new NetworkStack(app, 'net', { env, natGateways: 1 })
@@ -12,6 +12,7 @@ function build(): DataStack {
     env,
     vpc,
     environment: 'dev',
+    multiAz,
     crmTokenRoleNames: ['closeline-dev-us-east-1-core-task'],
   })
 }
@@ -31,6 +32,13 @@ describe('DataStack', () => {
         PubliclyAccessible: false,
         DeletionProtection: true,
       },
+    })
+  })
+
+  test('the database is single-AZ unless the stage asks for multi-AZ', () => {
+    template.hasResourceProperties('AWS::RDS::DBInstance', { MultiAZ: false })
+    Template.fromStack(build(true)).hasResourceProperties('AWS::RDS::DBInstance', {
+      MultiAZ: true,
     })
   })
 

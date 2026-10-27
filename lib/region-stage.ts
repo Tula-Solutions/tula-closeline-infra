@@ -26,6 +26,7 @@ export class RegionStage extends cdk.Stage {
     this.data = new DataStack(this, 'data', {
       vpc: this.network.vpc,
       environment: config.environment,
+      multiAz: config.multiAz,
       crmTokenRoleNames: config.services
         .filter((spec) => spec.kmsKey)
         .map((spec) => taskRoleName(config.environment, config.region, spec.name)),

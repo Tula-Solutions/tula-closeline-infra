@@ -3,6 +3,33 @@ import type { RegionConfigInput } from '../lib/config'
 /** Everything about a stage except the AWS account, which comes from context or the environment. */
 export type StageDefinition = Omit<RegionConfigInput, 'account'>
 
+/** What differs by environment in size: the database's AZ spread and how services scale. */
+interface Sizing {
+  multiAz: boolean
+  /** Applied to every service that does not set its own `autoscaling`; none means a fixed count. */
+  autoscaling?: { minCount: number; maxCount: number; cpuTargetPercent: number }
+}
+
+/** Sizing per environment. Dev is the small single-AZ stack; staging and prod spread and scale. */
+export const sizing: Record<StageDefinition['environment'], Sizing> = {
+  dev: { multiAz: false },
+  staging: { multiAz: true, autoscaling: { minCount: 2, maxCount: 4, cpuTargetPercent: 60 } },
+  prod: { multiAz: true, autoscaling: { minCount: 2, maxCount: 10, cpuTargetPercent: 60 } },
+}
+
+/** Fills a stage definition with its environment's sizing; anything the stage sets itself wins. */
+export function applySizing(definition: StageDefinition): StageDefinition {
+  const size = sizing[definition.environment]
+  const { autoscaling } = size
+  return {
+    multiAz: size.multiAz,
+    ...definition,
+    services: definition.services?.map((service) =>
+      autoscaling ? { desiredCount: autoscaling.minCount, autoscaling, ...service } : service
+    ),
+  }
+}
+
 /**
  * The stages this app can deploy, one per Region. Add a queue to `queues` and a service to
  * `services` here; stacks and grants follow from the entries.

@@ -11,6 +11,8 @@ export interface DataStackProps extends cdk.StackProps {
   vpc: ec2.IVpc
   /** The stage, used in the alias of the stage's keys. */
   environment: string
+  /** Run the database with a standby in a second Availability Zone. */
+  multiAz: boolean
   /** Names of the task roles that may use the CRM token key (see `taskRoleName`). */
   crmTokenRoleNames: string[]
 }
@@ -49,6 +51,7 @@ export class DataStack extends cdk.Stack {
       vpc: props.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroups: [this.databaseSecurityGroup],
+      multiAz: props.multiAz,
       allocatedStorage: 20,
       maxAllocatedStorage: 200,
       storageEncrypted: true,

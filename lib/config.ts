@@ -50,6 +50,15 @@ export const serviceSpecSchema = z
     cpu: z.number().int().default(256),
     memoryMiB: z.number().int().default(512),
     desiredCount: z.number().int().min(0).default(1),
+    /** Scale the task count on CPU between the bounds; `desiredCount` is then not pinned. */
+    autoscaling: z
+      .object({
+        minCount: z.number().int().min(1),
+        maxCount: z.number().int().min(1),
+        cpuTargetPercent: z.number().int().min(10).max(90).default(60),
+      })
+      .refine((a) => a.maxCount >= a.minCount, 'maxCount must be at least minCount')
+      .optional(),
     /**
      * ALB path patterns. The listener holds one rule per service, so a pattern must not be claimed
      * by two services: give each service its own `/v1/<prefix>/*` patterns, or, where one prefix is
@@ -125,6 +134,8 @@ export const regionConfigSchema = z.object({
   region: z.string().regex(/^[a-z]{2}(-[a-z]+)+-\d$/, 'region must look like us-east-1'),
   environment: environmentSchema,
   natGateways: z.number().int().min(1).max(3).default(1),
+  /** Run the database with a standby in a second Availability Zone. */
+  multiAz: z.boolean().default(false),
   /** ACM certificate ARN. When set the ALB serves HTTPS and redirects HTTP. */
   certificateArn: z.string().startsWith('arn:aws:acm:').optional(),
   queues: z.array(queueSpecSchema).default([]),

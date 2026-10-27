@@ -54,6 +54,7 @@ export class ServiceStack extends cdk.Stack {
       cpu: spec.cpu,
       memoryMiB: spec.memoryMiB,
       desiredCount: spec.desiredCount,
+      ...(spec.autoscaling ? { autoscaling: spec.autoscaling } : {}),
       queues: spec.queues.map((q) => {
         const found = props.queues[q.queue]
         if (!found) {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { applySizing } from '../config/stages'
 import { parseRegionConfig, secretName } from './config'
 
 const base = { account: '123456789012', region: 'us-east-1', environment: 'dev' }
@@ -104,5 +105,35 @@ describe('parseRegionConfig', () => {
     const config = parseRegionConfig({ ...base, services: [service] })
     expect(config.natGateways).toBe(1)
     expect(config.services[0]?.healthCheckPath).toBe('/health')
+  })
+})
+
+describe('applySizing', () => {
+  const stage = (environment: string) =>
+    applySizing({ ...base, environment, services: [service] } as Parameters<typeof applySizing>[0])
+
+  test('dev stays single-AZ with a fixed count and no autoscaling', () => {
+    const sized = stage('dev')
+    expect(sized.multiAz).toBe(false)
+    expect(sized.services?.[0]).toEqual(service)
+  })
+
+  test.each(['staging', 'prod'])('%s gets a multi-AZ database and autoscaled services', (env) => {
+    const sized = stage(env)
+    expect(sized.multiAz).toBe(true)
+    const svc = sized.services?.[0]
+    expect(svc?.autoscaling?.minCount).toBeGreaterThanOrEqual(2)
+    expect(svc?.autoscaling?.maxCount).toBeGreaterThan(svc?.autoscaling?.minCount ?? 0)
+    expect(svc?.desiredCount).toBe(svc?.autoscaling?.minCount)
+  })
+
+  test('a service that sets its own count or bounds keeps them', () => {
+    const own = { minCount: 3, maxCount: 4, cpuTargetPercent: 50 }
+    const sized = applySizing({
+      ...base,
+      environment: 'prod',
+      services: [{ ...service, desiredCount: 3, autoscaling: own }],
+    } as Parameters<typeof applySizing>[0])
+    expect(sized.services?.[0]?.autoscaling).toEqual(own)
   })
 })

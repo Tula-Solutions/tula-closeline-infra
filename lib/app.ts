@@ -1,5 +1,5 @@
 import * as cdk from 'aws-cdk-lib'
-import { stages } from '../config/stages'
+import { applySizing, stages } from '../config/stages'
 import { parseRegionConfig } from './config'
 import { RegionStage } from './region-stage'
 
@@ -17,7 +17,7 @@ export function buildApp(account?: string): cdk.App {
     throw new Error('Set the AWS account: cdk <command> -c account=<12-digit id>')
   }
   for (const [name, definition] of Object.entries(stages)) {
-    new RegionStage(app, name, parseRegionConfig({ ...definition, account: resolved }))
+    new RegionStage(app, name, parseRegionConfig({ ...applySizing(definition), account: resolved }))
   }
   return app
 }

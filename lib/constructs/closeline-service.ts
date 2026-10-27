@@ -69,6 +69,8 @@ export interface CloselineServiceProps {
   cpu: number
   memoryMiB: number
   desiredCount: number
+  /** Scales the task count on CPU between the bounds; `desiredCount` is then left to scaling. */
+  autoscaling?: { minCount: number; maxCount: number; cpuTargetPercent: number }
   queues: ServiceQueue[]
   secrets: ServiceSecret[]
   /** Non-secret settings, passed as plain environment values. */
@@ -188,12 +190,23 @@ export class CloselineService extends Construct {
     this.service = new ecs.FargateService(this, 'Service', {
       cluster: props.cluster,
       taskDefinition,
-      desiredCount: props.desiredCount,
+      desiredCount: props.autoscaling ? undefined : props.desiredCount,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       circuitBreaker: { enable: true, rollback: true },
       minHealthyPercent: 100,
       maxHealthyPercent: 200,
     })
+
+    if (props.autoscaling) {
+      this.service
+        .autoScaleTaskCount({
+          minCapacity: props.autoscaling.minCount,
+          maxCapacity: props.autoscaling.maxCount,
+        })
+        .scaleOnCpuUtilization('Cpu', {
+          targetUtilizationPercent: props.autoscaling.cpuTargetPercent,
+        })
+    }
 
     if (props.route) {
       const targetGroup = new elbv2.ApplicationTargetGroup(this, 'Targets', {
