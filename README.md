@@ -87,14 +87,19 @@ Nobody deploys from a laptop. Until these exist the deploy workflow cannot run.
 
 2. **Create the GitHub OIDC deploy role** in the same account: add the identity provider
    `token.actions.githubusercontent.com` (audience `sts.amazonaws.com`), then a role whose trust
-   policy allows `sts:AssumeRoleWithWebIdentity` for
-   `repo:Tula-Solutions/tula-closeline-infra:*` (narrow it to the branch or environment you
-   deploy from). Give it permission to assume the CDK bootstrap roles (`cdk-*` in the account).
-3. **Set repository variables** (Settings, Secrets and variables, Actions, Variables):
+   policy allows `sts:AssumeRoleWithWebIdentity` only when `token.actions.githubusercontent.com:sub`
+   equals `repo:Tula-Solutions/tula-closeline-infra:environment:<stage>` (one entry per stage the
+   account hosts; never `*`, which trusts every branch). Give it permission to assume the CDK
+   bootstrap roles (`cdk-*` in the account).
+3. **Create a GitHub environment per stage** (Settings, Environments) named as in
+   `config/stages.ts`. Under deployment branches allow only `develop` (and `main` for prod); for
+   `staging` and `prod` add required reviewers. The deploy job runs in that environment, so its
+   OIDC subject is the one the role trusts, and the workflow also refuses any other branch.
+4. **Set repository variables** (Settings, Secrets and variables, Actions, Variables):
    `AWS_DEPLOY_ROLE_ARN` (the role above), `AWS_REGION` (the stage's Region) and `AWS_ACCOUNT_ID`.
-4. **Create the secrets** each service lists in `config/stages.ts` in Secrets Manager, named
+5. **Create the secrets** each service lists in `config/stages.ts` in Secrets Manager, named
    `closeline/<environment>/<service>/<NAME>` (for dev core: `DATABASE_URL`,
    `INTERNAL_API_TOKENS`, `DEMO_RATE_KEY`, `CONSENT_HASH_KEY`). Values never go in this repo.
    Also replace the placeholder auth, portal and notice hosts in the stage's `environment`.
-5. Run the **Deploy** workflow (Actions, Deploy, Run workflow) and pick the stage. It runs
+6. Run the **Deploy** workflow (Actions, Deploy, Run workflow) and pick the stage. It runs
    `cdk diff`, then `cdk deploy`.

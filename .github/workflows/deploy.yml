@@ -23,11 +23,20 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # The OIDC subject becomes `...:environment:<stage>`, which is all the deploy role trusts.
+    environment: ${{ inputs.stage }}
     env:
       STAGE: ${{ inputs.stage }}
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      # Holds even before the environment's branch rule is set in GitHub.
+      - name: refuse an unreviewed ref
+        run: |
+          case "$GITHUB_REF" in
+            refs/heads/develop | refs/heads/main) ;;
+            *) echo "::error::deploys run only from develop or main, not $GITHUB_REF"; exit 1 ;;
+          esac
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
