@@ -4,7 +4,7 @@
   "description": "Closeline infrastructure: AWS, one full deployment per Region",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.4.2",
+  "packageManager": "bun@1.4.3",
   "scripts": {
     "prepare": "husky || true",
     "check": "biome check --no-errors-on-unmatched bin lib config scripts",
