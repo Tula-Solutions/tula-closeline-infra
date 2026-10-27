@@ -6,6 +6,8 @@ import { QueueWithDlq } from '../constructs/queue-with-dlq'
 
 /** Properties of the messaging stack. */
 export interface MessagingStackProps extends cdk.StackProps {
+  /** The stage; queue names are `closeline-<environment>-<name>` so stages never collide. */
+  environment: string
   queues: QueueSpec[]
 }
 
@@ -28,7 +30,7 @@ export class MessagingStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn })
     for (const spec of props.queues) {
       this.queues[spec.name] = new QueueWithDlq(this, `Queue-${spec.name}`, {
-        queueName: spec.name,
+        queueName: `closeline-${props.environment}-${spec.name}`,
         visibilityTimeout: cdk.Duration.seconds(spec.visibilityTimeoutSeconds),
         alarmTopic: this.alarmTopic,
       })

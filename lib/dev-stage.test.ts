@@ -27,13 +27,13 @@ describe('the dev stage: core-jobs queue', () => {
     const template = Template.fromStack(dev.messaging)
     template.resourceCountIs('AWS::SQS::Queue', 4)
     template.hasResourceProperties('AWS::SQS::Queue', {
-      QueueName: 'core-jobs',
+      QueueName: 'closeline-dev-core-jobs',
       VisibilityTimeout: 180,
       RedrivePolicy: { maxReceiveCount: 5, deadLetterTargetArn: Match.anyValue() },
     })
-    template.hasResourceProperties('AWS::SQS::Queue', { QueueName: 'core-jobs-dlq' })
+    template.hasResourceProperties('AWS::SQS::Queue', { QueueName: 'closeline-dev-core-jobs-dlq' })
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
-      AlarmName: 'core-jobs-dlq-not-empty',
+      AlarmName: 'closeline-dev-core-jobs-dlq-not-empty',
       MetricName: 'ApproximateNumberOfMessagesVisible',
       Threshold: 1,
     })
@@ -156,7 +156,7 @@ describe('the dev stage: core boot configuration', () => {
       throw new Error('the dev stage has no messaging stack')
     }
     Template.fromStack(dev.messaging).hasResourceProperties('AWS::SQS::Queue', {
-      QueueName: 'core-events',
+      QueueName: 'closeline-dev-core-events',
       RedrivePolicy: { maxReceiveCount: 5, deadLetterTargetArn: Match.anyValue() },
     })
     const resources: string[] = []

@@ -33,7 +33,10 @@ export class RegionStage extends cdk.Stage {
     })
     // CloudFormation rejects an empty template, so no queues means no messaging stack.
     if (config.queues.length > 0) {
-      this.messaging = new MessagingStack(this, 'messaging', { queues: config.queues })
+      this.messaging = new MessagingStack(this, 'messaging', {
+        environment: config.environment,
+        queues: config.queues,
+      })
     }
     this.edge = new EdgeStack(this, 'edge', {
       vpc: this.network.vpc,
