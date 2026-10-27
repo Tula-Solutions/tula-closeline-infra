@@ -23,4 +23,12 @@ describe('NetworkStack', () => {
       expect(Ref).toContain('dataSubnet')
     }
   })
+
+  test.each([1, 2])('natGateways: %i creates exactly that many NAT gateways', (natGateways) => {
+    const stack = new NetworkStack(new App(), 'net', {
+      env: { account: '123456789012', region: 'us-east-1' },
+      natGateways,
+    })
+    Template.fromStack(stack).resourceCountIs('AWS::EC2::NatGateway', natGateways)
+  })
 })
