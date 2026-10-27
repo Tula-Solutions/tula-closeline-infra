@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { App } from 'aws-cdk-lib'
-import { Match, Template } from 'aws-cdk-lib/assertions'
+import { Template } from 'aws-cdk-lib/assertions'
 import { DataStack } from './data-stack'
 import { NetworkStack } from './network-stack'
 
@@ -60,12 +60,6 @@ describe('DataStack', () => {
     for (const s of statements) {
       expect(s.Effect).toBe('Deny')
     }
-  })
-
-  test('Postgres accepts connections only on 5432 from the VPC', () => {
-    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
-      SecurityGroupIngress: [Match.objectLike({ FromPort: 5432, ToPort: 5432, IpProtocol: 'tcp' })],
-    })
   })
 
   test('the CRM token key is symmetric, rotates and is retained', () => {

@@ -44,6 +44,7 @@ export class RegionStage extends cdk.Stage {
         queues: this.messaging?.queues ?? {},
         bucket: this.data.bucket,
         crmTokenKey: this.data.crmTokenKey,
+        databaseSecurityGroup: this.data.databaseSecurityGroup,
         database: {
           address: this.data.database.dbInstanceEndpointAddress,
           port: this.data.database.dbInstanceEndpointPort,

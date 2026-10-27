@@ -29,15 +29,10 @@ export class DataStack extends cdk.Stack {
 
     this.databaseSecurityGroup = new ec2.SecurityGroup(this, 'DatabaseSg', {
       vpc: props.vpc,
-      description:
-        'Closeline Postgres: reachable from inside the VPC only (per-service rules to follow)',
+      // No rule here: each service stack admits its own security group (see service-stack.ts).
+      description: 'Closeline Postgres: reachable from the service security groups only',
       allowAllOutbound: false,
     })
-    this.databaseSecurityGroup.addIngressRule(
-      ec2.Peer.ipv4(props.vpc.vpcCidrBlock),
-      ec2.Port.tcp(5432),
-      'Postgres from inside the VPC'
-    )
     // The generated credentials must outlive the stack as long as the database does.
     const adminSecret = new rds.DatabaseSecret(this, 'AdminSecret', {
       username: 'closeline_admin',

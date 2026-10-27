@@ -232,3 +232,25 @@ describe('the dev stage: core boot configuration', () => {
     }
   })
 })
+
+describe('the dev stage: database access', () => {
+  test('the database security group has no CIDR rule; only the core service group may connect', () => {
+    const data = Template.fromStack(dev.data)
+    for (const sg of Object.values(data.findResources('AWS::EC2::SecurityGroup'))) {
+      expect(JSON.stringify(sg.Properties.SecurityGroupIngress ?? [])).not.toContain('CidrIp')
+    }
+    const rules = Object.values(core().findResources('AWS::EC2::SecurityGroupIngress')).filter(
+      (r) => r.Properties.FromPort === 5432
+    )
+    expect(rules).toHaveLength(1)
+    expect(rules[0]?.Properties).toMatchObject({
+      FromPort: 5432,
+      ToPort: 5432,
+      IpProtocol: 'tcp',
+      GroupId: { 'Fn::ImportValue': expect.stringMatching(/^dev-data:.*DatabaseSg.*GroupId/) },
+      SourceSecurityGroupId: {
+        'Fn::GetAtt': [expect.stringContaining('SecurityGroup'), 'GroupId'],
+      },
+    })
+  })
+})

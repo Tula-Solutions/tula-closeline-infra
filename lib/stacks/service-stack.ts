@@ -1,4 +1,5 @@
 import * as cdk from 'aws-cdk-lib'
+import * as ec2 from 'aws-cdk-lib/aws-ec2'
 import * as ecr from 'aws-cdk-lib/aws-ecr'
 import * as ecs from 'aws-cdk-lib/aws-ecs'
 import type * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2'
@@ -23,6 +24,8 @@ export interface ServiceStackProps extends cdk.StackProps {
   bucket: s3.IBucket
   /** The data stack's CRM token key, for a service that declares `kmsKey`. */
   crmTokenKey: kms.IKey
+  /** The data stack's database security group; this service's group is admitted on 5432. */
+  databaseSecurityGroup: ec2.ISecurityGroup
   /** The data stack's Postgres endpoint, published as an output for the owner's DATABASE_URL. */
   database: { address: string; port: string }
 }
@@ -85,6 +88,14 @@ export class ServiceStack extends cdk.Stack {
         priority: spec.priority,
       },
     })
+
+    // The rule lives in this stack (data must not depend on the services), naming the data
+    // stack's group as the target.
+    this.service.service.connections.allowTo(
+      props.databaseSecurityGroup,
+      ec2.Port.tcp(5432),
+      `Postgres for ${spec.name}`
+    )
 
     // Core reads DATABASE_URL only, a secret an owner creates with credentials. The host and port
     // are here so the owner can write it.
