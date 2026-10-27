@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { App } from 'aws-cdk-lib'
-import { Template } from 'aws-cdk-lib/assertions'
+import { Match, Template } from 'aws-cdk-lib/assertions'
 import { DataStack } from './data-stack'
 import { NetworkStack } from './network-stack'
 
@@ -39,6 +39,22 @@ describe('DataStack', () => {
     template.hasResourceProperties('AWS::RDS::DBInstance', { MultiAZ: false })
     Template.fromStack(build(true)).hasResourceProperties('AWS::RDS::DBInstance', {
       MultiAZ: true,
+    })
+  })
+
+  test('the admin secret rotates every 30 days with the built-in single-user Postgres rotation', () => {
+    template.hasResourceProperties('AWS::SecretsManager::RotationSchedule', {
+      RotationLambdaARN: Match.anyValue(),
+      RotationRules: { ScheduleExpression: 'rate(30 days)' },
+    })
+    template.hasResourceProperties('AWS::Serverless::Application', {
+      Parameters: Match.objectLike({
+        vpcSubnetIds: Match.anyValue(),
+        vpcSecurityGroupIds: Match.anyValue(),
+      }),
+    })
+    template.hasResourceProperties('AWS::SecretsManager::SecretTargetAttachment', {
+      TargetType: 'AWS::RDS::DBInstance',
     })
   })
 

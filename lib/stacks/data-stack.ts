@@ -62,6 +62,14 @@ export class DataStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     })
 
+    // The built-in single-user rotation (a hosted Lambda in the data subnets) changes the admin
+    // password. Services log in as their own users from DATABASE_URL secrets owners create, so
+    // rotation does not touch them.
+    this.database.addRotationSingleUser({
+      automaticallyAfter: cdk.Duration.days(30),
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+    })
+
     this.bucket = new s3.Bucket(this, 'Objects', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
